@@ -1,12 +1,12 @@
 # 🤖 FinanceBot
 
-Assistente financeiro pessoal integrado ao **WhatsApp**, desenvolvido com **.NET Core**. O sistema permite o registro ágil de despesas e receitas, utilizando o **Supabase** (PostgreSQL) para persistência e o **Twilio** para a interface de mensagens.
+Assistente financeiro pessoal integrado ao **Telegram**, desenvolvido com **.NET Core**. O sistema permite o registro agil de despesas e receitas, utilizando **PostgreSQL** para persistencia e um worker em **long polling** para receber mensagens do bot.
 
 ---
 
 ## 🚀 Como Testar (Comandos)
 
-Interaja com o bot pelo WhatsApp utilizando os padrões abaixo:
+Interaja com o bot pelo Telegram utilizando os padrões abaixo:
 
 ### 1. Registrar Gastos (Saídas)
 Digite a descrição seguida do valor.
@@ -31,7 +31,7 @@ Use os prefixos `+`, `ganho` ou `receita`. Adicione "fixo" ao final para receita
 * **Runtime:** .NET 8/10 (C#)
 * **Banco de Dados:** Supabase (PostgreSQL)
 * **ORM:** Entity Framework Core
-* **Mensageria:** Twilio WhatsApp API
+* **Mensageria:** Telegram Bot API
 * **Padrão:** Service Layer (Lógica de parsing desacoplada)
 
 ---
@@ -45,10 +45,11 @@ cd FinanceBot
 ```
 
 ### 2. Configurar Secrets (Segurança)
-Este projeto utiliza **User Secrets** para proteger as credenciais do Supabase. Não suba o arquivo `appsettings.json` com chaves reais.
+Este projeto utiliza **User Secrets** para proteger as credenciais do banco e o token do bot. Não suba credenciais reais para arquivos versionados.
 ```bash
 dotnet user-secrets init
 dotnet user-secrets set "ConnectionStrings:DefaultConnection" "SUA_STRING_DE_CONEXAO_AQUI"
+dotnet user-secrets set "Telegram:BotToken" "SEU_TOKEN_DO_BOT"
 ```
 
 ### 3. Banco de Dados
@@ -58,14 +59,10 @@ dotnet ef database update
 
 ### 4. Executar
 ```bash
-dotnet watch run
+ASPNETCORE_ENVIRONMENT=Development dotnet run
 ```
 
-### 5. Webhook (Ngrok)
-Exponha a porta local para o Twilio:
-```bash
-ngrok http http://localhost:5000
-```
+O bot e a API sobem no mesmo processo. Ao iniciar a aplicação, o worker do Telegram começa a consumir atualizações automaticamente por long polling.
 
 ---
 
