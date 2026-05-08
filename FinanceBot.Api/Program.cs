@@ -4,6 +4,7 @@ using FinanceBot.Application.Contracts;
 using FinanceBot.Infrastructure;
 using FinanceBot.Api.Middleware;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Extensions.Configuration;
 using Microsoft.OpenApi.Models;
@@ -11,9 +12,6 @@ using Microsoft.OpenApi.Models;
 var builder = WebApplication.CreateBuilder(args);
 
 ConfigureSharedSettings(builder.Configuration, builder.Environment.ContentRootPath, builder.Environment.EnvironmentName);
-
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection deve ser configurada.");
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -41,30 +39,16 @@ builder.Services.AddSwaggerGen(options =>
 });
 builder.Services.AddApplication();
 builder.Services.Configure<BillingOptions>(builder.Configuration.GetSection(BillingOptions.SectionName));
-builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
-builder.Services.AddInfrastructure(connectionString);
-
-var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
-if (string.IsNullOrWhiteSpace(jwtOptions.Key))
-{
-    throw new InvalidOperationException("Jwt:Key deve ser configurado.");
-}
+builder.Services
+    .AddOptions<JwtOptions>()
+    .Bind(builder.Configuration.GetSection(JwtOptions.SectionName))
+    .Validate(options => !string.IsNullOrWhiteSpace(options.Key), "Jwt:Key deve ser configurado.")
+    .ValidateOnStart();
+builder.Services.AddInfrastructure();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateIssuerSigningKey = true,
-            ValidateLifetime = true,
-            ValidIssuer = jwtOptions.Issuer,
-            ValidAudience = jwtOptions.Audience,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.Key)),
-            ClockSkew = TimeSpan.FromMinutes(1)
-        };
-    });
+    .AddJwtBearer();
+builder.Services.AddSingleton<IPostConfigureOptions<JwtBearerOptions>, ConfigureJwtBearerOptions>();
 builder.Services.AddAuthorization();
 
 var app = builder.Build();
@@ -118,4 +102,32 @@ static string? TryFindSolutionRoot(string startPath)
     }
 
     return null;
+}
+
+public partial class Program;
+
+file sealed class ConfigureJwtBearerOptions : IPostConfigureOptions<JwtBearerOptions>
+{
+    private readonly IOptions<JwtOptions> _jwtOptions;
+
+    public ConfigureJwtBearerOptions(IOptions<JwtOptions> jwtOptions)
+    {
+        _jwtOptions = jwtOptions;
+    }
+
+    public void PostConfigure(string? name, JwtBearerOptions options)
+    {
+        var jwtOptions = _jwtOptions.Value;
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateIssuerSigningKey = true,
+            ValidateLifetime = true,
+            ValidIssuer = jwtOptions.Issuer,
+            ValidAudience = jwtOptions.Audience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtOptions.Key)),
+            ClockSkew = TimeSpan.FromMinutes(1)
+        };
+    }
 }

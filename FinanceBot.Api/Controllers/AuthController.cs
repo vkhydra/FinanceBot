@@ -63,4 +63,16 @@ public sealed class AuthController : ControllerBase
         var codigo = await identityService.GerarCodigoVinculoAsync(cancellationToken);
         return Ok(codigo);
     }
+
+    [Authorize]
+    [HttpPost("desvincular")]
+    [ProducesResponseType(typeof(DesvinculoTelegramResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<DesvinculoTelegramResult>> Desvincular(
+        [FromServices] IIdentityService identityService,
+        CancellationToken cancellationToken = default)
+    {
+        var resultado = await identityService.DesvincularUsuarioAtualAsync(cancellationToken);
+        return Ok(resultado);
+    }
 }

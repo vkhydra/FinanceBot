@@ -3,21 +3,28 @@ using FinanceBot.Infrastructure.Authentication;
 using FinanceBot.Infrastructure.Data;
 using FinanceBot.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace FinanceBot.Infrastructure;
 
 public static class DependencyInjection
 {
-    public static IServiceCollection AddInfrastructure(this IServiceCollection services, string connectionString)
+    public static IServiceCollection AddInfrastructure(this IServiceCollection services)
     {
-        if (string.IsNullOrWhiteSpace(connectionString))
+        services.AddScoped<PostgresCurrentUserSessionInterceptor>();
+        services.AddDbContext<AppDbContext>((serviceProvider, options) =>
         {
-            throw new InvalidOperationException("ConnectionStrings:DefaultConnection deve ser configurada.");
-        }
+            var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+            var connectionString = configuration.GetConnectionString("DefaultConnection")
+                ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection deve ser configurada.");
 
-        services.AddDbContext<AppDbContext>(options =>
-            options.UseNpgsql(connectionString, npgsql => npgsql.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName)));
+            options
+                .UseNpgsql(
+                    connectionString,
+                    npgsql => npgsql.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName))
+                .AddInterceptors(serviceProvider.GetRequiredService<PostgresCurrentUserSessionInterceptor>());
+        });
 
         services.AddScoped<IAssinaturaUsuarioRepository, AssinaturaUsuarioRepository>();
         services.AddScoped<IUsuarioRepository, UsuarioRepository>();

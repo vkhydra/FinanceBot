@@ -32,6 +32,17 @@ public sealed class ReceitaRepository : IReceitaRepository
             .FirstOrDefaultAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Receita>> ListInPeriodAsync(
+        DateTime startUtc,
+        DateTime endExclusiveUtc,
+        CancellationToken cancellationToken = default)
+    {
+        return await _db.Receitas
+            .Where(receita => receita.Data >= startUtc && receita.Data < endExclusiveUtc)
+            .OrderByDescending(receita => receita.Data)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<Receita>> ListRecentAsync(int take, CancellationToken cancellationToken = default)
     {
         return await _db.Receitas

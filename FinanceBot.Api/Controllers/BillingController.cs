@@ -19,4 +19,15 @@ public sealed class BillingController : ControllerBase
         var status = await accessPolicyService.ObterStatusAtualAsync(cancellationToken);
         return Ok(status);
     }
+
+    [HttpPost("solicitar-upgrade")]
+    [ProducesResponseType(typeof(SolicitacaoUpgradeDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<SolicitacaoUpgradeDto>> SolicitarUpgrade(
+        [FromServices] IAccessPolicyService accessPolicyService,
+        CancellationToken cancellationToken = default)
+    {
+        var resultado = await accessPolicyService.SolicitarUpgradeAsync(cancellationToken);
+        return Ok(resultado);
+    }
 }

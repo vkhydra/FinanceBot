@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using FinanceBot.Application.Contracts;
 using FinanceBot.Domain.Entities;
 using FinanceBot.Domain.Enums;
+using Microsoft.Extensions.Options;
 
 namespace FinanceBot.Application.Services;
 
@@ -13,6 +14,7 @@ public sealed class IdentityService : IIdentityService
     private readonly ICurrentUserContext _currentUserContext;
     private readonly IAssinaturaUsuarioRepository _assinaturas;
     private readonly IFinanceUnitOfWork _unitOfWork;
+    private readonly IOptions<BillingOptions> _billingOptions;
 
     public IdentityService(
         IUsuarioRepository usuarios,
@@ -20,7 +22,8 @@ public sealed class IdentityService : IIdentityService
         IAccessTokenService accessTokenService,
         ICurrentUserContext currentUserContext,
         IAssinaturaUsuarioRepository assinaturas,
-        IFinanceUnitOfWork unitOfWork)
+        IFinanceUnitOfWork unitOfWork,
+        IOptions<BillingOptions> billingOptions)
     {
         _usuarios = usuarios;
         _passwordHasher = passwordHasher;
@@ -28,6 +31,7 @@ public sealed class IdentityService : IIdentityService
         _currentUserContext = currentUserContext;
         _assinaturas = assinaturas;
         _unitOfWork = unitOfWork;
+        _billingOptions = billingOptions;
     }
 
     public async Task<AutenticacaoDto> RegistrarAsync(RegistrarUsuarioRequest request, CancellationToken cancellationToken = default)
@@ -46,13 +50,16 @@ public sealed class IdentityService : IIdentityService
             Email = emailNormalizado,
             SenhaHash = _passwordHasher.Hash(senha)
         };
+        var utcNow = DateTime.UtcNow;
+        var trialDays = Math.Max(0, _billingOptions.Value.DefaultTrialDays);
         var assinatura = new AssinaturaUsuario
         {
             Id = Guid.NewGuid(),
             UsuarioId = usuario.Id,
             PlanoAtual = PlanoUsuario.Free,
             StatusAssinatura = StatusAssinatura.Nenhuma,
-            AtualizadoEmUtc = DateTime.UtcNow
+            TrialAteUtc = trialDays > 0 ? utcNow.AddDays(trialDays) : null,
+            AtualizadoEmUtc = utcNow
         };
 
         await _usuarios.AddAsync(usuario, cancellationToken);
@@ -91,6 +98,25 @@ public sealed class IdentityService : IIdentityService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return new CodigoVinculoDto(codigoVinculo, usuario.VinculoExpiracao.Value);
+    }
+
+    public async Task<DesvinculoTelegramResult> DesvincularUsuarioAtualAsync(CancellationToken cancellationToken = default)
+    {
+        var usuarioId = _currentUserContext.UsuarioId
+            ?? throw new InvalidOperationException("Não existe usuário autenticado para remover o vínculo.");
+
+        var usuario = await _usuarios.GetByIdAsync(usuarioId, cancellationToken)
+            ?? throw new InvalidOperationException("Usuário autenticado não encontrado.");
+
+        if (!usuario.TelegramId.HasValue && usuario.CodigoVinculo is null && usuario.VinculoExpiracao is null)
+        {
+            return new DesvinculoTelegramResult(true, "Sua conta já está sem vínculo ativo com o Telegram.");
+        }
+
+        LimparVinculoTelegram(usuario);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return new DesvinculoTelegramResult(true, "Vínculo com o Telegram removido com sucesso.");
     }
 
     public async Task<UsuarioAutenticado?> ObterUsuarioPorTelegramAsync(long telegramId, CancellationToken cancellationToken = default)
@@ -135,6 +161,20 @@ public sealed class IdentityService : IIdentityService
         return new VinculoTelegramResult(true, "✅ Chat vinculado com sucesso. Agora você já pode registrar gastos e receitas por aqui.");
     }
 
+    public async Task<DesvinculoTelegramResult> DesvincularTelegramAsync(long telegramId, CancellationToken cancellationToken = default)
+    {
+        var usuario = await _usuarios.GetByTelegramIdAsync(telegramId, cancellationToken);
+        if (usuario is null)
+        {
+            return new DesvinculoTelegramResult(false, "Este chat não está vinculado a nenhuma conta.");
+        }
+
+        LimparVinculoTelegram(usuario);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return new DesvinculoTelegramResult(true, "🔓 Chat desvinculado com sucesso. Para usar novamente, gere outro código e envie /vincular 123456.");
+    }
+
     private AutenticacaoDto BuildAutenticacao(Usuario usuario)
     {
         var token = _accessTokenService.Generate(usuario.Id, usuario.Email);
@@ -153,6 +193,13 @@ public sealed class IdentityService : IIdentityService
         }
 
         throw new InvalidOperationException("Não foi possível gerar um código de vínculo único.");
+    }
+
+    private static void LimparVinculoTelegram(Usuario usuario)
+    {
+        usuario.TelegramId = null;
+        usuario.CodigoVinculo = null;
+        usuario.VinculoExpiracao = null;
     }
 
     private static string NormalizeEmail(string email)

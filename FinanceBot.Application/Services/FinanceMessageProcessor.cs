@@ -36,6 +36,14 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
                 : FinanceMessageResult.Falha(resultadoVinculo.Mensagem);
         }
 
+        if (IsUnlinkCommand(comandoNormalizado))
+        {
+            var resultadoDesvinculo = await _identityService.DesvincularTelegramAsync(request.ChatId, cancellationToken);
+            return resultadoDesvinculo.Sucesso
+                ? FinanceMessageResult.Ok(resultadoDesvinculo.Mensagem)
+                : FinanceMessageResult.Falha(resultadoDesvinculo.Mensagem);
+        }
+
         if (_currentUserContext.UsuarioId is null)
         {
             return comandoNormalizado is "ajuda" or "comandos" or "help"
@@ -50,6 +58,8 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
         {
             "total" or "resumo" => await ObterResumoFinanceiro(cancellationToken),
             "listar" or "movimentos" => await ListarUltimosRegistros(cancellationToken),
+            "relatorio" or "relatório" => await ObterRelatorioMensal(cancellationToken),
+            "upgrade" or "assinar" => await SolicitarUpgrade(cancellationToken),
             "desfazer" => await DesfazerUltimaAcao(cancellationToken),
             "plano" or "status" => await ObterStatusPlano(cancellationToken),
             "comandos" or "ajuda" or "help" => ObterMenuAjuda(),
@@ -112,7 +122,8 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
         return FinanceMessageResult.Ok(
             "✅ Gasto registrado\n" +
             $"• Descrição: {FormatDescription(gasto.Descricao)}\n" +
-            $"• Valor: {FormatCurrency(gasto.Valor)}");
+            $"• Valor: {FormatCurrency(gasto.Valor)}\n" +
+            $"• Categoria: {gasto.Categoria}");
     }
 
     private async Task<FinanceMessageResult> RegistrarReceita(string mensagem, CancellationToken cancellationToken)
@@ -190,7 +201,7 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
         var listaFormatada = string.Join(
             "\n",
             movimentos.Select((x, index) =>
-                $"{index + 1}. {(x.Tipo == "Receita" ? "📈" : "📉")} {FormatDescription(x.Descricao)} — {FormatCurrency(x.Valor)}"));
+                $"{index + 1}. {(x.Tipo == "Receita" ? "📈" : "📉")} {FormatDescription(x.Descricao)} — {FormatCurrency(x.Valor)}{FormatCategoria(x.Categoria)}"));
 
         return FinanceMessageResult.Ok($"📝 Últimos movimentos\n\n{listaFormatada}");
     }
@@ -228,6 +239,11 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
             mensagem += $"\n• Trial até: {FormatDate(status.TrialAteUtc.Value)}";
         }
 
+        if (status.UpgradeSolicitadoEmUtc.HasValue)
+        {
+            mensagem += $"\n• Upgrade solicitado em: {FormatDate(status.UpgradeSolicitadoEmUtc.Value)}";
+        }
+
         if (status.PremiumAteUtc.HasValue)
         {
             mensagem += $"\n• Premium até: {FormatDate(status.PremiumAteUtc.Value)}";
@@ -237,7 +253,59 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
             ? "\n• Status: você ainda pode registrar lançamentos."
             : $"\n• Status: {status.MotivoBloqueio}";
 
+        mensagem += $"\n• Resumo: {status.MensagemStatus}";
+
+        if (!string.IsNullOrWhiteSpace(status.MensagemUpgrade))
+        {
+            mensagem += $"\n• Upgrade: {status.MensagemUpgrade}";
+        }
+
         return FinanceMessageResult.Ok(mensagem);
+    }
+
+    private async Task<FinanceMessageResult> SolicitarUpgrade(CancellationToken cancellationToken)
+    {
+        var resultado = await _accessPolicyService.SolicitarUpgradeAsync(cancellationToken);
+        var mensagem = $"🚀 {resultado.Mensagem}";
+
+        if (resultado.SolicitadoEmUtc.HasValue)
+        {
+            mensagem += $"\n• Registrado em: {FormatDate(resultado.SolicitadoEmUtc.Value)}";
+        }
+
+        return resultado.Sucesso
+            ? FinanceMessageResult.Ok(mensagem)
+            : FinanceMessageResult.Falha(mensagem);
+    }
+
+    private async Task<FinanceMessageResult> ObterRelatorioMensal(CancellationToken cancellationToken)
+    {
+        RelatorioMensalDto relatorio;
+        try
+        {
+            relatorio = await _financeOperationsService.ObterRelatorioMensalAsync(cancellationToken: cancellationToken);
+        }
+        catch (AccessPolicyException ex)
+        {
+            return FinanceMessageResult.Falha($"🚫 {ex.Message}");
+        }
+
+        var resumoCategorias = relatorio.TopCategoriasGasto.Count == 0
+            ? "• Sem gastos categorizados neste mês."
+            : string.Join(
+                "\n",
+                relatorio.TopCategoriasGasto.Select((categoria, index) =>
+                    $"{index + 1}. {categoria.Categoria} — {FormatCurrency(categoria.TotalGasto)} ({categoria.Quantidade} lançamentos)"));
+
+        return FinanceMessageResult.Ok(
+            "📅 Relatório mensal\n" +
+            $"• Referência: {relatorio.Mes:D2}/{relatorio.Ano}\n" +
+            $"• Entradas: {FormatCurrency(relatorio.TotalReceitas)}\n" +
+            $"• Saídas: {FormatCurrency(relatorio.TotalGastos)}\n" +
+            $"• Saldo: {FormatCurrency(relatorio.Saldo)}\n" +
+            $"• Lançamentos: {relatorio.TotalLancamentos}\n\n" +
+            "Categorias do mês:\n" +
+            resumoCategorias);
     }
 
     private static FinanceMessageResult ObterMenuAjuda()
@@ -253,8 +321,11 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
             "• ajuda — mostra este menu\n" +
             "• total / resumo — mostra o resumo do dia\n" +
             "• listar / movimentos — mostra os últimos movimentos\n" +
+            "• relatorio — mostra o relatório mensal (Premium/trial)\n" +
             "• plano / status — mostra seu plano e sua quota atual\n" +
-            "• desfazer — remove o último lançamento\n\n" +
+            "• upgrade / assinar — registra seu pedido de upgrade para o Premium\n" +
+            "• desfazer — remove o último lançamento\n" +
+            "• desvincular — remove o vínculo deste chat\n\n" +
             "Se preferir, os comandos também funcionam com / no início.");
     }
 
@@ -288,6 +359,11 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
         return true;
     }
 
+    private static bool IsUnlinkCommand(string comandoNormalizado)
+    {
+        return string.Equals(comandoNormalizado, "desvincular", StringComparison.Ordinal);
+    }
+
     private static string FormatCurrency(decimal value)
     {
         return value.ToString("C2", PtBr);
@@ -304,5 +380,12 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
             .Replace("\r", " ", StringComparison.Ordinal)
             .Replace("\n", " ", StringComparison.Ordinal)
             .Trim();
+    }
+
+    private static string FormatCategoria(string? categoria)
+    {
+        return string.IsNullOrWhiteSpace(categoria)
+            ? string.Empty
+            : $" ({categoria})";
     }
 }

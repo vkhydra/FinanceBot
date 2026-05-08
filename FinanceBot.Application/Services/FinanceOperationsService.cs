@@ -10,19 +10,22 @@ public sealed class FinanceOperationsService : IFinanceOperationsService
     private readonly IFinanceUnitOfWork _unitOfWork;
     private readonly ICurrentUserContext _currentUserContext;
     private readonly IAccessPolicyService _accessPolicyService;
+    private readonly IGastoCategorizationService _gastoCategorizationService;
 
     public FinanceOperationsService(
         ITransacaoRepository transacoes,
         IReceitaRepository receitas,
         IFinanceUnitOfWork unitOfWork,
         ICurrentUserContext currentUserContext,
-        IAccessPolicyService accessPolicyService)
+        IAccessPolicyService accessPolicyService,
+        IGastoCategorizationService gastoCategorizationService)
     {
         _transacoes = transacoes;
         _receitas = receitas;
         _unitOfWork = unitOfWork;
         _currentUserContext = currentUserContext;
         _accessPolicyService = accessPolicyService;
+        _gastoCategorizationService = gastoCategorizationService;
     }
 
     public async Task<GastoDto> RegistrarGastoAsync(CriarGastoRequest request, CancellationToken cancellationToken = default)
@@ -35,7 +38,8 @@ public sealed class FinanceOperationsService : IFinanceOperationsService
             UsuarioId = usuarioId,
             Descricao = request.Descricao.Trim(),
             Valor = request.Valor,
-            Data = DateTime.UtcNow
+            Data = DateTime.UtcNow,
+            Categoria = _gastoCategorizationService.Categorize(request.Descricao)
         };
 
         await _transacoes.AddAsync(transacao, cancellationToken);
@@ -90,6 +94,45 @@ public sealed class FinanceOperationsService : IFinanceOperationsService
         return new ResumoFinanceiroDto(dataReferencia, ganhos, gastos, ganhos - gastos);
     }
 
+    public async Task<RelatorioMensalDto> ObterRelatorioMensalAsync(
+        int? ano = null,
+        int? mes = null,
+        CancellationToken cancellationToken = default)
+    {
+        _ = GetCurrentUserId();
+        await _accessPolicyService.EnsureCanUsePremiumFeatureAsync("relatório mensal", cancellationToken);
+
+        var now = DateTime.UtcNow;
+        var year = ano ?? now.Year;
+        var month = mes ?? now.Month;
+        var startUtc = new DateTime(year, month, 1, 0, 0, 0, DateTimeKind.Utc);
+        var endExclusiveUtc = startUtc.AddMonths(1);
+
+        var gastos = await _transacoes.ListInPeriodAsync(startUtc, endExclusiveUtc, cancellationToken);
+        var receitas = await _receitas.ListInPeriodAsync(startUtc, endExclusiveUtc, cancellationToken);
+
+        var totalGastos = gastos.Sum(x => x.Valor);
+        var totalReceitas = receitas.Sum(x => x.Valor);
+        var topCategorias = gastos
+            .GroupBy(gasto => gasto.Categoria ?? "Outros")
+            .Select(group => new CategoriaResumoDto(
+                group.Key,
+                group.Sum(item => item.Valor),
+                group.Count()))
+            .OrderByDescending(item => item.TotalGasto)
+            .Take(5)
+            .ToList();
+
+        return new RelatorioMensalDto(
+            year,
+            month,
+            totalReceitas,
+            totalGastos,
+            totalReceitas - totalGastos,
+            gastos.Count + receitas.Count,
+            topCategorias);
+    }
+
     public async Task<IReadOnlyList<MovimentoDto>> ListarUltimosMovimentosAsync(int limite = 5, CancellationToken cancellationToken = default)
     {
         _ = GetCurrentUserId();
@@ -97,8 +140,8 @@ public sealed class FinanceOperationsService : IFinanceOperationsService
         var ultimosGastos = await _transacoes.ListRecentAsync(take, cancellationToken);
         var ultimasReceitas = await _receitas.ListRecentAsync(take, cancellationToken);
 
-        return ultimosGastos.Select(g => new MovimentoDto("Gasto", g.Descricao, g.Valor, g.Data))
-            .Union(ultimasReceitas.Select(r => new MovimentoDto("Receita", r.Descricao, r.Valor, r.Data)))
+        return ultimosGastos.Select(g => new MovimentoDto("Gasto", g.Descricao, g.Valor, g.Data, g.Categoria ?? "Outros"))
+            .Union(ultimasReceitas.Select(r => new MovimentoDto("Receita", r.Descricao, r.Valor, r.Data, null)))
             .OrderByDescending(m => m.Data)
             .Take(take)
             .ToList();
@@ -139,7 +182,7 @@ public sealed class FinanceOperationsService : IFinanceOperationsService
     }
 
     private static GastoDto Map(Transacao transacao) =>
-        new(transacao.Id, transacao.Descricao, transacao.Valor, transacao.Data);
+        new(transacao.Id, transacao.Descricao, transacao.Valor, transacao.Data, transacao.Categoria ?? "Outros");
 
     private static ReceitaDto Map(Receita receita) =>
         new(receita.Id, receita.Descricao, receita.Valor, receita.Data, receita.EhFixo);

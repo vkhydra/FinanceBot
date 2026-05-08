@@ -7,7 +7,14 @@ public sealed record BillingStatusDto(
     string StatusAssinatura,
     DateTime? PremiumAteUtc,
     DateTime? TrialAteUtc,
+    DateTime? UpgradeSolicitadoEmUtc,
     int LancamentosNoMesAtual,
     int? LimiteLancamentosNoMesAtual,
     bool PodeRegistrarLancamento,
-    string? MotivoBloqueio);
+    bool UpgradePendente,
+    bool PodeSolicitarUpgrade,
+    string? MotivoBloqueio,
+    bool TrialAtivo,
+    int? DiasRestantesTrial,
+    string MensagemStatus,
+    string? MensagemUpgrade);

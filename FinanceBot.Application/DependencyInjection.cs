@@ -13,6 +13,7 @@ public static class DependencyInjection
         services.AddScoped<ICurrentUserContextAccessor>(serviceProvider => serviceProvider.GetRequiredService<CurrentUserContext>());
         services.AddScoped<IAccessPolicyService, AccessPolicyService>();
         services.AddScoped<IFinanceMessageProcessor, FinanceMessageProcessor>();
+        services.AddSingleton<IGastoCategorizationService, GastoCategorizationService>();
         services.AddScoped<IFinanceOperationsService, FinanceOperationsService>();
         services.AddScoped<IIdentityService, IdentityService>();
         return services;

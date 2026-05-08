@@ -30,12 +30,6 @@ export async function createGastoAction(formData: FormData) {
 
   try {
     await createGasto(session.token, { descricao, valor });
-    revalidatePath("/dashboard");
-    redirect(
-      buildRedirect("/dashboard", {
-        success: "Gasto registrado com sucesso.",
-      }),
-    );
   } catch (error) {
     const message =
       error instanceof FinanceBotApiError
@@ -43,6 +37,13 @@ export async function createGastoAction(formData: FormData) {
         : "Nao foi possivel registrar o gasto.";
     redirect(buildRedirect("/dashboard", { error: message }));
   }
+
+  revalidatePath("/dashboard");
+  redirect(
+    buildRedirect("/dashboard", {
+      success: "Gasto registrado com sucesso.",
+    }),
+  );
 }
 
 export async function createReceitaAction(formData: FormData) {
@@ -61,12 +62,6 @@ export async function createReceitaAction(formData: FormData) {
 
   try {
     await createReceita(session.token, { descricao, valor, ehFixo });
-    revalidatePath("/dashboard");
-    redirect(
-      buildRedirect("/dashboard", {
-        success: "Receita registrada com sucesso.",
-      }),
-    );
   } catch (error) {
     const message =
       error instanceof FinanceBotApiError
@@ -74,4 +69,11 @@ export async function createReceitaAction(formData: FormData) {
         : "Nao foi possivel registrar a receita.";
     redirect(buildRedirect("/dashboard", { error: message }));
   }
+
+  revalidatePath("/dashboard");
+  redirect(
+    buildRedirect("/dashboard", {
+      success: "Receita registrada com sucesso.",
+    }),
+  );
 }

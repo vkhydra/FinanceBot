@@ -32,6 +32,17 @@ public sealed class TransacaoRepository : ITransacaoRepository
             .FirstOrDefaultAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Transacao>> ListInPeriodAsync(
+        DateTime startUtc,
+        DateTime endExclusiveUtc,
+        CancellationToken cancellationToken = default)
+    {
+        return await _db.Transacoes
+            .Where(transacao => transacao.Data >= startUtc && transacao.Data < endExclusiveUtc)
+            .OrderByDescending(transacao => transacao.Data)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<Transacao>> ListRecentAsync(int take, CancellationToken cancellationToken = default)
     {
         return await _db.Transacoes

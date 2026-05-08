@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FinanceBot.Api", "FinanceBo
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FinanceBot.TelegramWorker", "FinanceBot.TelegramWorker\FinanceBot.TelegramWorker.csproj", "{961490C7-4A22-42EB-B739-B03285C1594F}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FinanceBot.Api.Tests", "FinanceBot.Api.Tests\FinanceBot.Api.Tests.csproj", "{F0996DC2-92F6-45E9-A4BD-9ED35EEA8129}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -83,6 +85,18 @@ Global
 		{961490C7-4A22-42EB-B739-B03285C1594F}.Release|x64.Build.0 = Release|Any CPU
 		{961490C7-4A22-42EB-B739-B03285C1594F}.Release|x86.ActiveCfg = Release|Any CPU
 		{961490C7-4A22-42EB-B739-B03285C1594F}.Release|x86.Build.0 = Release|Any CPU
+		{F0996DC2-92F6-45E9-A4BD-9ED35EEA8129}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F0996DC2-92F6-45E9-A4BD-9ED35EEA8129}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F0996DC2-92F6-45E9-A4BD-9ED35EEA8129}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{F0996DC2-92F6-45E9-A4BD-9ED35EEA8129}.Debug|x64.Build.0 = Debug|Any CPU
+		{F0996DC2-92F6-45E9-A4BD-9ED35EEA8129}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{F0996DC2-92F6-45E9-A4BD-9ED35EEA8129}.Debug|x86.Build.0 = Debug|Any CPU
+		{F0996DC2-92F6-45E9-A4BD-9ED35EEA8129}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F0996DC2-92F6-45E9-A4BD-9ED35EEA8129}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F0996DC2-92F6-45E9-A4BD-9ED35EEA8129}.Release|x64.ActiveCfg = Release|Any CPU
+		{F0996DC2-92F6-45E9-A4BD-9ED35EEA8129}.Release|x64.Build.0 = Release|Any CPU
+		{F0996DC2-92F6-45E9-A4BD-9ED35EEA8129}.Release|x86.ActiveCfg = Release|Any CPU
+		{F0996DC2-92F6-45E9-A4BD-9ED35EEA8129}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

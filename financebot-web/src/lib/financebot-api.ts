@@ -16,10 +16,17 @@ export type BillingStatusResponse = {
   statusAssinatura: string;
   premiumAteUtc: string | null;
   trialAteUtc: string | null;
+  upgradeSolicitadoEmUtc: string | null;
   lancamentosNoMesAtual: number;
   limiteLancamentosNoMesAtual: number | null;
   podeRegistrarLancamento: boolean;
+  upgradePendente: boolean;
+  podeSolicitarUpgrade: boolean;
   motivoBloqueio: string | null;
+  trialAtivo: boolean;
+  diasRestantesTrial: number | null;
+  mensagemStatus: string;
+  mensagemUpgrade: string | null;
 };
 
 export type ResumoResponse = {
@@ -34,6 +41,7 @@ export type MovimentoResponse = {
   descricao: string;
   valor: number;
   data: string;
+  categoria?: string | null;
 };
 
 export type GastoResponse = {
@@ -41,6 +49,7 @@ export type GastoResponse = {
   descricao: string;
   valor: number;
   data: string;
+  categoria: string;
 };
 
 export type ReceitaResponse = {
@@ -54,6 +63,34 @@ export type ReceitaResponse = {
 export type CodigoVinculoResponse = {
   codigo: string;
   expiraEmUtc: string;
+};
+
+export type DesvinculoTelegramResponse = {
+  sucesso: boolean;
+  mensagem: string;
+};
+
+export type CategoriaResumoResponse = {
+  categoria: string;
+  totalGasto: number;
+  quantidade: number;
+};
+
+export type MonthlyReportResponse = {
+  ano: number;
+  mes: number;
+  totalReceitas: number;
+  totalGastos: number;
+  saldo: number;
+  totalLancamentos: number;
+  topCategoriasGasto: CategoriaResumoResponse[];
+};
+
+export type UpgradeRequestResponse = {
+  sucesso: boolean;
+  mensagem: string;
+  solicitadoEmUtc: string | null;
+  upgradePendente: boolean;
 };
 
 export class FinanceBotApiError extends Error {
@@ -135,6 +172,14 @@ export async function getBillingStatus(token: string) {
   return apiRequest<BillingStatusResponse>("/api/billing/status", {}, token);
 }
 
+export async function requestUpgrade(token: string) {
+  return apiRequest<UpgradeRequestResponse>(
+    "/api/billing/solicitar-upgrade",
+    { method: "POST" },
+    token,
+  );
+}
+
 export async function getResumo(token: string) {
   return apiRequest<ResumoResponse>("/api/resumo", {}, token);
 }
@@ -177,4 +222,16 @@ export async function generateTelegramLink(token: string) {
     { method: "POST" },
     token,
   );
+}
+
+export async function unlinkTelegram(token: string) {
+  return apiRequest<DesvinculoTelegramResponse>(
+    "/auth/desvincular",
+    { method: "POST" },
+    token,
+  );
+}
+
+export async function getMonthlyReport(token: string) {
+  return apiRequest<MonthlyReportResponse>("/api/relatorios/mensal", {}, token);
 }

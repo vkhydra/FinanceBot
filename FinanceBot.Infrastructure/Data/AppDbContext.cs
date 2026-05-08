@@ -53,6 +53,7 @@ public class AppDbContext : DbContext
             entity.Property(assinatura => assinatura.StatusAssinatura)
                 .HasConversion<string>()
                 .HasMaxLength(20);
+            entity.Property(assinatura => assinatura.UpgradeSolicitadoEmUtc);
             entity.Property(assinatura => assinatura.GatewayCustomerId).HasMaxLength(200);
             entity.Property(assinatura => assinatura.GatewaySubscriptionId).HasMaxLength(200);
             entity.HasIndex(assinatura => assinatura.UsuarioId).IsUnique();

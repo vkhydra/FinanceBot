@@ -10,6 +10,7 @@ public sealed class AssinaturaUsuario
     public StatusAssinatura StatusAssinatura { get; set; } = StatusAssinatura.Nenhuma;
     public DateTime? PremiumAteUtc { get; set; }
     public DateTime? TrialAteUtc { get; set; }
+    public DateTime? UpgradeSolicitadoEmUtc { get; set; }
     public string? GatewayCustomerId { get; set; }
     public string? GatewaySubscriptionId { get; set; }
     public DateTime AtualizadoEmUtc { get; set; }

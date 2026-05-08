@@ -11,13 +11,10 @@ var builder = Host.CreateApplicationBuilder(args);
 
 ConfigureSharedSettings(builder.Configuration, builder.Environment.ContentRootPath, builder.Environment.EnvironmentName);
 
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection deve ser configurada.");
-
 builder.Services.AddApplication();
 builder.Services.Configure<BillingOptions>(builder.Configuration.GetSection(BillingOptions.SectionName));
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
-builder.Services.AddInfrastructure(connectionString);
+builder.Services.AddInfrastructure();
 
 builder.Services
     .AddOptions<TelegramOptions>()

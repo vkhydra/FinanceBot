@@ -7,6 +7,7 @@ COPY FinanceBot.Application/FinanceBot.Application.csproj FinanceBot.Application
 COPY FinanceBot.Infrastructure/FinanceBot.Infrastructure.csproj FinanceBot.Infrastructure/
 COPY FinanceBot.Api/FinanceBot.Api.csproj FinanceBot.Api/
 COPY FinanceBot.TelegramWorker/FinanceBot.TelegramWorker.csproj FinanceBot.TelegramWorker/
+COPY FinanceBot.Api.Tests/FinanceBot.Api.Tests.csproj FinanceBot.Api.Tests/
 
 RUN dotnet restore FinanceBot.sln
 
