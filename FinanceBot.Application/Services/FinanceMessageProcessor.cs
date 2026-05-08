@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Encodings.Web;
 using System.Text.RegularExpressions;
 using FinanceBot.Application.Contracts;
 namespace FinanceBot.Application.Services;
@@ -33,28 +34,28 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
         if (TryParseLinkCommand(comandoNormalizado, out var codigoVinculo))
         {
             var resultadoVinculo = await _identityService.VincularTelegramAsync(request.ChatId, codigoVinculo, cancellationToken);
-            return resultadoVinculo.Sucesso
-                ? FinanceMessageResult.Ok(resultadoVinculo.Mensagem)
-                : FinanceMessageResult.Falha(resultadoVinculo.Mensagem);
+            return FormatarResultadoVinculo(resultadoVinculo);
         }
 
         if (IsUnlinkCommand(comandoNormalizado))
         {
             var resultadoDesvinculo = await _identityService.DesvincularTelegramAsync(request.ChatId, cancellationToken);
-            return resultadoDesvinculo.Sucesso
-                ? FinanceMessageResult.Ok(resultadoDesvinculo.Mensagem)
-                : FinanceMessageResult.Falha(resultadoDesvinculo.Mensagem);
+            return FormatarResultadoDesvinculo(resultadoDesvinculo);
         }
 
         if (_currentUserContext.UsuarioId is null)
         {
             return IsHelpLikeCommand(comandoNormalizado)
                 ? ObterMenuVinculo()
-                : FinanceMessageResult.Falha(
-                    "🔒 Este chat ainda não está vinculado.\n" +
-                    "Gere o codigo na Web/API e envie aqui:\n" +
-                    "• /vincular 123456\n\n" +
-                    "Se quiser, mande ajuda que eu te mostro o passo a passo.");
+                : FinanceMessageResult.FalhaHtml(BuildMessage(
+                    "🔒 <b>Chat não vinculado</b>",
+                    "Para registrar lançamentos por aqui, primeiro conecte este chat à sua conta.",
+                    string.Join(
+                        "\n",
+                        "1. Acesse a Web ou a API.",
+                        "2. Gere um código de vínculo.",
+                        $"3. Envie {Code("/vincular 123456")} neste chat."),
+                    $"Se precisar, envie {Code("ajuda")} e eu mostro o passo a passo."));
         }
 
         return comandoNormalizado switch
@@ -102,13 +103,13 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
         var (valido, desc, valor, _) = ParseDados(mensagem);
         if (!valido)
         {
-            return FinanceMessageResult.Falha(
-                "Nao consegui entender esse gasto.\n" +
-                "Tente um destes formatos:\n" +
-                "• Gasto: Café 8,50\n" +
-                "• Gasto: Uber 15\n" +
-                "• Natural: gastei 18 no uber\n" +
-                "• Receita: + Freelance 350");
+            return FinanceMessageResult.FalhaHtml(BuildMessage(
+                "⚠️ <b>Não consegui interpretar esse gasto</b>",
+                "Use um destes formatos:",
+                BuildBulletList(
+                    Bullet(Code("Café 8,50")),
+                    Bullet(Code("Uber 15")),
+                    Bullet(Code("gastei 18 no uber")))));
         }
 
         GastoDto gasto;
@@ -120,15 +121,19 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
         }
         catch (AccessPolicyException ex)
         {
-            return FinanceMessageResult.Falha($"🚫 {ex.Message}");
+            return FinanceMessageResult.FalhaHtml(BuildMessage(
+                "🚫 <b>Não foi possível registrar o lançamento</b>",
+                Encode(ex.Message),
+                $"Consulte {Code("/plano")} para ver seu status atual."));
         }
 
-        return FinanceMessageResult.Ok(
-            "✅ Gasto registrado\n" +
-            $"• Descrição: {FormatDescription(gasto.Descricao)}\n" +
-            $"• Valor: {FormatCurrency(gasto.Valor)}\n" +
-            $"• Categoria: {gasto.Categoria}\n" +
-            "• Proximo passo: envie /resumo ou /movimentos se quiser conferir.");
+        return FinanceMessageResult.OkHtml(BuildMessage(
+            "✅ <b>Gasto registrado</b>",
+            BuildBulletList(
+                BulletField("Descrição", FormatDescription(gasto.Descricao)),
+                BulletField("Valor", FormatCurrency(gasto.Valor)),
+                BulletField("Categoria", gasto.Categoria)),
+            $"Próximo passo: consulte {Code("/resumo")} ou {Code("/movimentos")}."));
     }
 
     private async Task<FinanceMessageResult> RegistrarReceita(string mensagem, CancellationToken cancellationToken)
@@ -138,13 +143,14 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
         var (valido, desc, valor, ehFixo) = ParseDados(limpa);
         if (!valido)
         {
-            return FinanceMessageResult.Falha(
-                "Nao consegui entender essa receita.\n" +
-                "Tente um destes formatos:\n" +
-                "• Receita: + Freelance 350\n" +
-                "• Receita: receita Venda 120\n" +
-                "• Receita fixa: + Salário 5000 fixo\n" +
-                "• Natural: recebi 350 do freelance");
+            return FinanceMessageResult.FalhaHtml(BuildMessage(
+                "⚠️ <b>Não consegui interpretar essa receita</b>",
+                "Use um destes formatos:",
+                BuildBulletList(
+                    Bullet(Code("+ freelance 350")),
+                    Bullet(Code("receita venda 120")),
+                    Bullet(Code("+ salário 5000 fixo")),
+                    Bullet(Code("recebi 350 do freelance")))));
         }
 
         ReceitaDto receita;
@@ -156,15 +162,19 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
         }
         catch (AccessPolicyException ex)
         {
-            return FinanceMessageResult.Falha($"🚫 {ex.Message}");
+            return FinanceMessageResult.FalhaHtml(BuildMessage(
+                "🚫 <b>Não foi possível registrar o lançamento</b>",
+                Encode(ex.Message),
+                $"Consulte {Code("/plano")} para ver seu status atual."));
         }
 
-        return FinanceMessageResult.Ok(
-            "✅ Receita registrada\n" +
-            $"• Descrição: {FormatDescription(receita.Descricao)}\n" +
-            $"• Valor: {FormatCurrency(receita.Valor)}\n" +
-            $"• Tipo: {(receita.EhFixo ? "Fixa" : "Variável")}\n" +
-            "• Proximo passo: envie /resumo ou /movimentos se quiser conferir.");
+        return FinanceMessageResult.OkHtml(BuildMessage(
+            "✅ <b>Receita registrada</b>",
+            BuildBulletList(
+                BulletField("Descrição", FormatDescription(receita.Descricao)),
+                BulletField("Valor", FormatCurrency(receita.Valor)),
+                BulletField("Tipo", receita.EhFixo ? "Fixa" : "Variável")),
+            $"Próximo passo: consulte {Code("/resumo")} ou {Code("/movimentos")}."));
     }
 
     private async Task<FinanceMessageResult> IdentificarERegistrar(string mensagem, CancellationToken cancellationToken)
@@ -190,11 +200,10 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
         var resultado = await RegistrarGasto(mensagem, cancellationToken);
         if (!resultado.Sucesso)
         {
-            var menu = ObterMenuAjuda();
-            return FinanceMessageResult.Falha(
-                "Nao entendi essa mensagem.\n" +
-                "Se quiser, me mande algo como 'gastei 18 no uber' ou '+ freelance 350'.\n\n" +
-                menu.Mensagem);
+            return FinanceMessageResult.FalhaHtml(BuildMessage(
+                "⚠️ <b>Não consegui interpretar a mensagem</b>",
+                $"Tente algo como {Code("gastei 18 no uber")} ou {Code("+ freelance 350")}.",
+                $"Envie {Code("ajuda")} para ver todos os comandos disponíveis."));
         }
 
         return resultado;
@@ -204,11 +213,12 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
     {
         var resumo = await _financeOperationsService.ObterResumoAsync(cancellationToken: cancellationToken);
 
-        return FinanceMessageResult.Ok(
-            "📊 Resumo de hoje\n" +
-            $"• Entradas: {FormatCurrency(resumo.Ganhos)}\n" +
-            $"• Saídas: {FormatCurrency(resumo.Gastos)}\n" +
-            $"• Saldo: {FormatCurrency(resumo.Saldo)}");
+        return FinanceMessageResult.OkHtml(BuildMessage(
+            "📊 <b>Resumo do dia</b>",
+            BuildBulletList(
+                BulletField("Entradas", FormatCurrency(resumo.Ganhos)),
+                BulletField("Saídas", FormatCurrency(resumo.Gastos)),
+                BulletField("Saldo", FormatCurrency(resumo.Saldo)))));
     }
 
     private async Task<FinanceMessageResult> ListarUltimosRegistros(CancellationToken cancellationToken)
@@ -216,15 +226,19 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
         var movimentos = await _financeOperationsService.ListarUltimosMovimentosAsync(cancellationToken: cancellationToken);
         if (!movimentos.Any())
         {
-            return FinanceMessageResult.Ok("📝 Ainda nao ha movimentacoes registradas.\nEnvie algo como 'Cafe 8,50' ou '+ freelance 350' para comecar.");
+            return FinanceMessageResult.OkHtml(BuildMessage(
+                "🧾 <b>Nenhum lançamento encontrado</b>",
+                $"Envie algo como {Code("Café 8,50")} ou {Code("+ freelance 350")} para começar."));
         }
 
         var listaFormatada = string.Join(
             "\n",
             movimentos.Select((x, index) =>
-                $"{index + 1}. {(x.Tipo == "Receita" ? "📈" : "📉")} {FormatDescription(x.Descricao)} — {FormatCurrency(x.Valor)}{FormatCategoria(x.Categoria)}"));
+                $"{index + 1}. {(x.Tipo == "Receita" ? "📈" : "📉")} <b>{Encode(FormatDescription(x.Descricao))}</b> — {Encode(FormatCurrency(x.Valor))}{FormatCategoriaHtml(x.Categoria)}"));
 
-        return FinanceMessageResult.Ok($"📝 Últimos movimentos\n\n{listaFormatada}");
+        return FinanceMessageResult.OkHtml(BuildMessage(
+            "🧾 <b>Últimos lançamentos</b>",
+            listaFormatada));
     }
 
     private async Task<FinanceMessageResult> DesfazerUltimaAcao(CancellationToken cancellationToken)
@@ -232,13 +246,16 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
         var movimentoDesfeito = await _financeOperationsService.DesfazerUltimaAcaoAsync(cancellationToken);
         if (movimentoDesfeito is null)
         {
-            return FinanceMessageResult.Falha("↩️ Ainda não há nenhuma movimentação para desfazer.");
+            return FinanceMessageResult.FalhaHtml(BuildMessage(
+                "↩️ <b>Nada para desfazer</b>",
+                "Ainda não há movimentações registradas para esta conta."));
         }
 
-        return FinanceMessageResult.Ok(
-            "↩️ Último movimento desfeito\n" +
-            $"• Tipo: {movimentoDesfeito.Tipo}\n" +
-            $"• Descrição: {FormatDescription(movimentoDesfeito.Descricao)}");
+        return FinanceMessageResult.OkHtml(BuildMessage(
+            "↩️ <b>Último lançamento desfeito</b>",
+            BuildBulletList(
+                BulletField("Tipo", movimentoDesfeito.Tipo),
+                BulletField("Descrição", FormatDescription(movimentoDesfeito.Descricao)))));
     }
 
     private async Task<FinanceMessageResult> ObterStatusPlano(CancellationToken cancellationToken)
@@ -248,55 +265,64 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
             ? $"{status.LancamentosNoMesAtual}/{limite}"
             : $"{status.LancamentosNoMesAtual} (ilimitado)";
 
-        var mensagem =
-            "💳 Seu plano\n" +
-            $"• Plano cadastrado: {status.PlanoAtual}\n" +
-            $"• Acesso efetivo: {status.PlanoEfetivo}\n" +
-            $"• Assinatura: {status.StatusAssinatura}\n" +
-            $"• Lançamentos no mês: {limiteLancamentos}";
+        var linhas = new List<string>
+        {
+            BulletField("Plano cadastrado", status.PlanoAtual),
+            BulletField("Acesso efetivo", status.PlanoEfetivo),
+            BulletField("Assinatura", status.StatusAssinatura),
+            BulletField("Lançamentos no mês", limiteLancamentos)
+        };
 
         if (status.TrialAteUtc.HasValue)
         {
-            mensagem += $"\n• Trial até: {FormatDate(status.TrialAteUtc.Value)}";
+            linhas.Add(BulletField("Trial até", FormatDate(status.TrialAteUtc.Value)));
         }
 
         if (status.UpgradeSolicitadoEmUtc.HasValue)
         {
-            mensagem += $"\n• Upgrade solicitado em: {FormatDate(status.UpgradeSolicitadoEmUtc.Value)}";
+            linhas.Add(BulletField("Upgrade solicitado em", FormatDate(status.UpgradeSolicitadoEmUtc.Value)));
         }
 
         if (status.PremiumAteUtc.HasValue)
         {
-            mensagem += $"\n• Premium até: {FormatDate(status.PremiumAteUtc.Value)}";
+            linhas.Add(BulletField("Premium até", FormatDate(status.PremiumAteUtc.Value)));
         }
 
-        mensagem += status.PodeRegistrarLancamento
-            ? "\n• Status: você ainda pode registrar lançamentos."
-            : $"\n• Status: {status.MotivoBloqueio}";
+        linhas.Add(status.PodeRegistrarLancamento
+            ? BulletField("Status", "Você ainda pode registrar lançamentos.")
+            : BulletField("Status", status.MotivoBloqueio ?? "Seu plano atual não permite novos lançamentos agora."));
 
-        mensagem += $"\n• Resumo: {status.MensagemStatus}";
+        linhas.Add(BulletField("Resumo", status.MensagemStatus));
 
         if (!string.IsNullOrWhiteSpace(status.MensagemUpgrade))
         {
-            mensagem += $"\n• Upgrade: {status.MensagemUpgrade}";
+            linhas.Add(BulletField("Upgrade", status.MensagemUpgrade));
         }
 
-        return FinanceMessageResult.Ok(mensagem);
+        return FinanceMessageResult.OkHtml(BuildMessage(
+            "💳 <b>Status do plano</b>",
+            BuildBulletList(linhas.ToArray())));
     }
 
     private async Task<FinanceMessageResult> SolicitarUpgrade(CancellationToken cancellationToken)
     {
         var resultado = await _accessPolicyService.SolicitarUpgradeAsync(cancellationToken);
-        var mensagem = $"🚀 {resultado.Mensagem}";
+        var blocos = new List<string>
+        {
+            Encode(resultado.Mensagem)
+        };
 
         if (resultado.SolicitadoEmUtc.HasValue)
         {
-            mensagem += $"\n• Registrado em: {FormatDate(resultado.SolicitadoEmUtc.Value)}";
+            blocos.Add(BulletField("Registrado em", FormatDate(resultado.SolicitadoEmUtc.Value)));
         }
 
+        blocos.Insert(0, resultado.Sucesso ? "🚀 <b>Solicitação de upgrade registrada</b>" : "⚠️ <b>Não foi possível registrar o upgrade</b>");
+        var mensagem = BuildMessage(blocos.ToArray());
+
         return resultado.Sucesso
-            ? FinanceMessageResult.Ok(mensagem)
-            : FinanceMessageResult.Falha(mensagem);
+            ? FinanceMessageResult.OkHtml(mensagem)
+            : FinanceMessageResult.FalhaHtml(mensagem);
     }
 
     private async Task<FinanceMessageResult> ObterRelatorioMensal(CancellationToken cancellationToken)
@@ -308,7 +334,10 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
         }
         catch (AccessPolicyException ex)
         {
-            return FinanceMessageResult.Falha($"🚫 {ex.Message}");
+            return FinanceMessageResult.FalhaHtml(BuildMessage(
+                "🚫 <b>Relatório indisponível</b>",
+                Encode(ex.Message),
+                $"Consulte {Code("/plano")} ou envie {Code("/upgrade")} para liberar esse recurso."));
         }
 
         var resumoCategorias = relatorio.TopCategoriasGasto.Count == 0
@@ -316,52 +345,57 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
             : string.Join(
                 "\n",
                 relatorio.TopCategoriasGasto.Select((categoria, index) =>
-                    $"{index + 1}. {categoria.Categoria} — {FormatCurrency(categoria.TotalGasto)} ({categoria.Quantidade} lançamentos)"));
+                    $"{index + 1}. {Encode(categoria.Categoria)} — {Encode(FormatCurrency(categoria.TotalGasto))} ({categoria.Quantidade} lançamentos)"));
 
-        return FinanceMessageResult.Ok(
-            "📅 Relatório mensal\n" +
-            $"• Referência: {relatorio.Mes:D2}/{relatorio.Ano}\n" +
-            $"• Entradas: {FormatCurrency(relatorio.TotalReceitas)}\n" +
-            $"• Saídas: {FormatCurrency(relatorio.TotalGastos)}\n" +
-            $"• Saldo: {FormatCurrency(relatorio.Saldo)}\n" +
-            $"• Lançamentos: {relatorio.TotalLancamentos}\n\n" +
-            "Categorias do mês:\n" +
-            resumoCategorias);
+        return FinanceMessageResult.OkHtml(BuildMessage(
+            "📅 <b>Relatório mensal</b>",
+            BuildBulletList(
+                BulletField("Referência", $"{relatorio.Mes:D2}/{relatorio.Ano}"),
+                BulletField("Entradas", FormatCurrency(relatorio.TotalReceitas)),
+                BulletField("Saídas", FormatCurrency(relatorio.TotalGastos)),
+                BulletField("Saldo", FormatCurrency(relatorio.Saldo)),
+                BulletField("Lançamentos", relatorio.TotalLancamentos.ToString(PtBr))),
+            "<b>Top categorias de gasto</b>\n" + resumoCategorias));
     }
 
     private static FinanceMessageResult ObterMenuAjuda()
     {
-        return FinanceMessageResult.Ok(
-            "🤖 FinanceBot\n\n" +
-            "Voce pode registrar de forma direta, sem decorar muita coisa:\n" +
-            "• Gasto: Café 8,50\n" +
-            "• Gasto: Uber 15\n" +
-            "• Natural: gastei 18 no uber\n" +
-            "• Receita: + Freelance 350\n" +
-            "• Natural: recebi 350 do freelance\n" +
-            "• Receita fixa: + Salário 5000 fixo\n\n" +
-            "Comandos disponíveis:\n" +
-            "• ajuda / menu / oi — mostra este menu\n" +
-            "• total / resumo — mostra o resumo do dia\n" +
-            "• listar / movimentos — mostra os últimos movimentos\n" +
-            "• relatorio — mostra o relatório mensal (Premium/trial)\n" +
-            "• plano / status — mostra seu plano e sua quota atual\n" +
-            "• upgrade / assinar — registra seu pedido de upgrade para o Premium\n" +
-            "• desfazer — remove o último lançamento\n" +
-            "• desvincular — remove o vínculo deste chat\n\n" +
-            "Se preferir, os comandos também funcionam com / no início.");
+        return FinanceMessageResult.OkHtml(BuildMessage(
+            "🤖 <b>FinanceBot</b>",
+            "Envie uma mensagem curta e eu registro o lançamento para você.",
+            string.Join(
+                "\n",
+                "<b>Exemplos rápidos</b>",
+                Bullet(Code("Café 8,50")),
+                Bullet(Code("gastei 18 no uber")),
+                Bullet(Code("+ freelance 350")),
+                Bullet(Code("recebi 350 do freelance")),
+                Bullet(Code("+ salário 5000 fixo"))),
+            string.Join(
+                "\n",
+                "<b>Comandos</b>",
+                Bullet($"{Code("ajuda")} ou {Code("menu")} — mostra este menu"),
+                Bullet($"{Code("resumo")} ou {Code("total")} — mostra o fechamento do dia"),
+                Bullet($"{Code("movimentos")} ou {Code("listar")} — mostra os últimos lançamentos"),
+                Bullet($"{Code("relatorio")} — mostra o relatório mensal (Premium ou trial)"),
+                Bullet($"{Code("plano")} ou {Code("status")} — mostra seu plano e sua quota atual"),
+                Bullet($"{Code("upgrade")} ou {Code("assinar")} — registra seu interesse no Premium"),
+                Bullet($"{Code("desfazer")} — remove o último lançamento"),
+                Bullet($"{Code("desvincular")} — desconecta este chat da conta")),
+            $"Você também pode usar os comandos com {Code("/")} no início."));
     }
 
     private static FinanceMessageResult ObterMenuVinculo()
     {
-        return FinanceMessageResult.Ok(
-            "🤖 FinanceBot\n\n" +
-            "Este chat ainda nao esta vinculado a sua conta.\n" +
-            "1. Faca login na Web/API.\n" +
-            "2. Gere um codigo de vinculo.\n" +
-            "3. Envie aqui:\n" +
-            "• /vincular 123456\n\n" +
-            "Depois disso eu ja consigo registrar seus lancamentos por aqui.");
+        return FinanceMessageResult.OkHtml(BuildMessage(
+            "🤖 <b>FinanceBot</b>",
+            "Este chat ainda não está conectado à sua conta.",
+            string.Join(
+                "\n",
+                "1. Faça login na Web ou na API.",
+                "2. Gere um código de vínculo.",
+                $"3. Envie {Code("/vincular 123456")} aqui."),
+            "Depois disso, você poderá registrar gastos e receitas diretamente no Telegram."));
     }
 
     private static bool TryParseLinkCommand(string comandoNormalizado, out string codigoVinculo)
@@ -515,10 +549,65 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
             .Trim();
     }
 
-    private static string FormatCategoria(string? categoria)
+    private static FinanceMessageResult FormatarResultadoVinculo(VinculoTelegramResult resultado)
+    {
+        var mensagem = BuildMessage(
+            resultado.Sucesso ? "✅ <b>Chat vinculado</b>" : "⚠️ <b>Não foi possível concluir o vínculo</b>",
+            Encode(resultado.Mensagem),
+            resultado.Sucesso
+                ? $"Agora você já pode enviar {Code("gastei 18 no uber")} ou consultar {Code("/resumo")}."
+                : null);
+
+        return resultado.Sucesso
+            ? FinanceMessageResult.OkHtml(mensagem)
+            : FinanceMessageResult.FalhaHtml(mensagem);
+    }
+
+    private static FinanceMessageResult FormatarResultadoDesvinculo(DesvinculoTelegramResult resultado)
+    {
+        var mensagem = BuildMessage(
+            resultado.Sucesso ? "🔓 <b>Chat desvinculado</b>" : "⚠️ <b>Nenhum vínculo ativo encontrado</b>",
+            Encode(resultado.Mensagem));
+
+        return resultado.Sucesso
+            ? FinanceMessageResult.OkHtml(mensagem)
+            : FinanceMessageResult.FalhaHtml(mensagem);
+    }
+
+    private static string BuildMessage(params string?[] blocos)
+    {
+        return string.Join("\n\n", blocos.Where(bloco => !string.IsNullOrWhiteSpace(bloco)));
+    }
+
+    private static string BuildBulletList(params string[] itens)
+    {
+        return string.Join("\n", itens.Where(item => !string.IsNullOrWhiteSpace(item)));
+    }
+
+    private static string Bullet(string conteudoHtml)
+    {
+        return $"• {conteudoHtml}";
+    }
+
+    private static string BulletField(string label, string value)
+    {
+        return $"• <b>{Encode(label)}:</b> {Encode(value)}";
+    }
+
+    private static string Code(string text)
+    {
+        return $"<code>{Encode(text)}</code>";
+    }
+
+    private static string Encode(string value)
+    {
+        return HtmlEncoder.Default.Encode(value);
+    }
+
+    private static string FormatCategoriaHtml(string? categoria)
     {
         return string.IsNullOrWhiteSpace(categoria)
             ? string.Empty
-            : $" ({categoria})";
+            : $" ({Encode(categoria)})";
     }
 }

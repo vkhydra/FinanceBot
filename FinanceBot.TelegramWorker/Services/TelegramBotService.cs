@@ -73,22 +73,33 @@ public sealed class TelegramBotService : BackgroundService
         catch (DbUpdateException ex)
         {
             _logger.LogError(ex, "Falha ao acessar o banco durante o processamento da mensagem do Telegram.");
-            resultado = FinanceMessageResult.Falha("⚠️ Não consegui acessar o banco agora. Tente novamente em instantes.");
+            resultado = FinanceMessageResult.FalhaHtml("⚠️ <b>Instabilidade temporária</b>\nNão consegui acessar os dados agora. Tente novamente em instantes.");
         }
         catch (DbException ex)
         {
             _logger.LogError(ex, "Falha ao acessar o banco durante o processamento da mensagem do Telegram.");
-            resultado = FinanceMessageResult.Falha("⚠️ Não consegui acessar o banco agora. Tente novamente em instantes.");
+            resultado = FinanceMessageResult.FalhaHtml("⚠️ <b>Instabilidade temporária</b>\nNão consegui acessar os dados agora. Tente novamente em instantes.");
         }
         catch (InvalidOperationException ex) when (HasDatabaseFailure(ex))
         {
             _logger.LogError(ex, "Falha transiente de banco durante o processamento da mensagem do Telegram.");
-            resultado = FinanceMessageResult.Falha("⚠️ Não consegui acessar o banco agora. Tente novamente em instantes.");
+            resultado = FinanceMessageResult.FalhaHtml("⚠️ <b>Instabilidade temporária</b>\nNão consegui acessar os dados agora. Tente novamente em instantes.");
         }
         catch (TimeoutException ex)
         {
             _logger.LogError(ex, "Timeout ao acessar o banco durante o processamento da mensagem do Telegram.");
-            resultado = FinanceMessageResult.Falha("⚠️ Não consegui acessar o banco agora. Tente novamente em instantes.");
+            resultado = FinanceMessageResult.FalhaHtml("⚠️ <b>Instabilidade temporária</b>\nNão consegui acessar os dados agora. Tente novamente em instantes.");
+        }
+
+        if (resultado.UsaHtml)
+        {
+            await botClient.SendMessage(
+                chatId: update.Message.Chat.Id,
+                text: resultado.Mensagem,
+                parseMode: ParseMode.Html,
+                cancellationToken: cancellationToken);
+
+            return;
         }
 
         await botClient.SendMessage(

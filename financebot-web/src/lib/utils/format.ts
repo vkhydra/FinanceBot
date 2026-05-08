@@ -12,6 +12,11 @@ const dateFormatter = new Intl.DateTimeFormat("pt-BR", {
   dateStyle: "medium",
 });
 
+const percentageFormatter = new Intl.NumberFormat("pt-BR", {
+  style: "percent",
+  maximumFractionDigits: 0,
+});
+
 export function formatCurrency(value: number) {
   return currencyFormatter.format(value);
 }
@@ -24,4 +29,8 @@ export function formatDateTime(value: string | Date) {
 export function formatDate(value: string | Date) {
   const date = typeof value === "string" ? new Date(value) : value;
   return dateFormatter.format(date);
+}
+
+export function formatPercentage(value: number) {
+  return percentageFormatter.format(value);
 }

@@ -9,9 +9,9 @@ export default async function AuthenticatedLayout({
   const session = await requireSession();
 
   return (
-    <div className="min-h-screen bg-muted/30">
+    <div className="app-shell">
       <ShellHeader email={session.email} />
-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-6 py-8">
+      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
         {children}
       </main>
     </div>

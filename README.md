@@ -141,6 +141,7 @@ http://127.0.0.1:5057
 ```
 
 Rotas iniciais da Web:
+- `/`
 - `/login`
 - `/register`
 - `/dashboard`
@@ -149,9 +150,11 @@ Rotas iniciais da Web:
 - `/telegram`
 
 Na interface Web atual:
-- o `/dashboard` exibe resumo do dia, ultimos movimentos, status do plano/quota e o relatorio mensal quando o acesso efetivo estiver em Premium/trial;
+- a rota `/` agora funciona como home publica, apresentando o produto antes do login com CTA para entrar ou criar conta;
+- o shell autenticado agora tem navegacao mobile com menu hamburguer, alternancia de tema e dark mode mais forte por padrao;
+- o `/dashboard` exibe resumo do dia, status do plano/quota, relatorio mensal quando o acesso efetivo estiver em Premium/trial e uma camada de insights graficos sobre categorias, origem e ritmo do dinheiro;
 - o `/dashboard` permite registrar gastos/receitas com observacao opcional, mantendo o resumo como superficie de entrada rapida;
-- o `/lancamentos` organiza gastos e receitas em uma visao unificada, com filtros por periodo, tipo, categoria, origem e texto, alem de permitir editar/excluir cada item com data editavel, observacao, origem visivel e correcao manual de categoria nos gastos;
+- o `/lancamentos` organiza gastos e receitas em uma visao unificada com leitura mais moderna e responsiva, filtros por periodo, tipo, categoria, origem e texto, alem de permitir editar/excluir cada item com data editavel, observacao, origem visivel e correcao manual de categoria nos gastos;
 - o `/plano` concentra a experiencia comercial do upgrade, com estado de trial, pedido pendente, beneficios do Premium e CTA dedicado;
 - o `/dashboard` tambem permite registrar o pedido de upgrade para o Premium e refletir o estado pendente desse fluxo;
 - o `/telegram` permite gerar um novo codigo de vinculo e tambem disparar a desvinculacao autenticada pela propria interface.

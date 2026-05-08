@@ -141,6 +141,28 @@ public sealed class ApiIntegrationTests
     }
 
     [Fact]
+    public async Task Telegram_help_menu_uses_html_formatting_for_professional_copy()
+    {
+        await using var app = await TestAppInstance.CreateAsync(_postgres);
+
+        var auth = await app.RegisterAsync("telegram-help");
+
+        await using var scope = app.Factory.Services.CreateAsyncScope();
+        var currentUser = scope.ServiceProvider.GetRequiredService<ICurrentUserContextAccessor>();
+        currentUser.SetTelegramChatId(998877);
+        currentUser.SetAuthenticatedUser(auth.UsuarioId, auth.Email);
+
+        var processor = scope.ServiceProvider.GetRequiredService<IFinanceMessageProcessor>();
+        var result = await processor.ProcessarMensagemAsync(new FinanceMessageRequest("ajuda", 998877));
+
+        Assert.True(result.Sucesso);
+        Assert.True(result.UsaHtml);
+        Assert.Contains("<b>FinanceBot</b>", result.Mensagem, StringComparison.Ordinal);
+        Assert.Contains("<code>resumo</code>", result.Mensagem, StringComparison.Ordinal);
+        Assert.Contains("<code>desvincular</code>", result.Mensagem, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Unlink_endpoint_clears_binding_and_is_idempotent()
     {
         await using var app = await TestAppInstance.CreateAsync(_postgres);
@@ -283,6 +305,27 @@ public sealed class ApiIntegrationTests
         Assert.Contains(todos, item => item.Id == gastoWeb.Id && item.Origem == "Web" && item.Observacao == "Compra mensal");
         Assert.Contains(telegramOnly, item => item.Origem == "Telegram" && item.Descricao == "uber");
         Assert.DoesNotContain(telegramOnly, item => item.Origem == "Web");
+    }
+
+    [Fact]
+    public async Task Telegram_messages_escape_user_content_when_using_html_formatting()
+    {
+        await using var app = await TestAppInstance.CreateAsync(_postgres);
+
+        var auth = await app.RegisterAsync("telegram-html");
+
+        await using var scope = app.Factory.Services.CreateAsyncScope();
+        var currentUser = scope.ServiceProvider.GetRequiredService<ICurrentUserContextAccessor>();
+        currentUser.SetTelegramChatId(998877);
+        currentUser.SetAuthenticatedUser(auth.UsuarioId, auth.Email);
+
+        var processor = scope.ServiceProvider.GetRequiredService<IFinanceMessageProcessor>();
+        var result = await processor.ProcessarMensagemAsync(new FinanceMessageRequest("Mercado <vip> 18", 998877));
+
+        Assert.True(result.Sucesso);
+        Assert.True(result.UsaHtml);
+        Assert.Contains("Mercado &lt;vip&gt;", result.Mensagem, StringComparison.Ordinal);
+        Assert.DoesNotContain("<vip>", result.Mensagem, StringComparison.Ordinal);
     }
 
     [Fact]
