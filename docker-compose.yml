@@ -1,0 +1,82 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: financebot-postgres
+    environment:
+      POSTGRES_DB: financebot
+      POSTGRES_USER: financebot
+      POSTGRES_PASSWORD: financebot
+    ports:
+      - "5433:5432"
+    volumes:
+      - financebot-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U financebot -d financebot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    container_name: financebot-api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=financebot;Username=financebot;Password=financebot
+      Jwt__Key: ${JWT_SECRET:?JWT_SECRET must be provided}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "5057:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  telegram-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: worker
+    container_name: financebot-telegram-worker
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=financebot;Username=financebot;Password=financebot
+      Jwt__Key: ${JWT_SECRET:?JWT_SECRET must be provided}
+      Telegram__BotToken: ${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN must be provided}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web
+    container_name: financebot-web
+    environment:
+      FINANCEBOT_API_BASE_URL: http://api:8080
+      FINANCEBOT_SESSION_COOKIE_SECURE: "false"
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/login >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  financebot-postgres-data:

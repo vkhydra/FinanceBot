@@ -486,3 +486,4 @@ appsettings.json
 appsettings.Development.json
 appsettings.Production.json
 plan.md
+plan-frontend.md

@@ -1,0 +1,13 @@
+.git
+.gitignore
+.idea
+.vs
+.vscode
+**/bin
+**/obj
+**/node_modules
+**/.next
+**/.DS_Store
+README.md
+plan.md
+docker-compose.yml
