@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace FinanceBot.Api.Requests;
 
-public sealed class CriarReceitaHttpRequest
+public sealed class AtualizarReceitaHttpRequest
 {
     [Required]
     [MinLength(1)]
@@ -10,6 +10,9 @@ public sealed class CriarReceitaHttpRequest
 
     [Range(0.01d, double.MaxValue)]
     public decimal Valor { get; init; }
+
+    [Required]
+    public DateOnly Data { get; init; }
 
     public bool EhFixo { get; init; }
 

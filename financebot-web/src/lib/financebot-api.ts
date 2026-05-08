@@ -37,11 +37,15 @@ export type ResumoResponse = {
 };
 
 export type MovimentoResponse = {
+  id: string;
   tipo: string;
   descricao: string;
   valor: number;
   data: string;
   categoria?: string | null;
+  ehFixo?: boolean | null;
+  origem: string;
+  observacao?: string | null;
 };
 
 export type GastoResponse = {
@@ -50,6 +54,8 @@ export type GastoResponse = {
   valor: number;
   data: string;
   categoria: string;
+  origem: string;
+  observacao?: string | null;
 };
 
 export type ReceitaResponse = {
@@ -58,6 +64,8 @@ export type ReceitaResponse = {
   valor: number;
   data: string;
   ehFixo: boolean;
+  origem: string;
+  observacao?: string | null;
 };
 
 export type CodigoVinculoResponse = {
@@ -148,6 +156,10 @@ async function apiRequest<T>(
     );
   }
 
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   return (await response.json()) as T;
 }
 
@@ -184,13 +196,60 @@ export async function getResumo(token: string) {
   return apiRequest<ResumoResponse>("/api/resumo", {}, token);
 }
 
-export async function getMovimentos(token: string) {
+export async function getUltimosMovimentos(token: string) {
   return apiRequest<MovimentoResponse[]>("/api/movimentos/ultimos", {}, token);
+}
+
+export async function listMovimentos(
+  token: string,
+  filters: {
+    inicio?: string;
+    fim?: string;
+    tipo?: string;
+    busca?: string;
+    categoria?: string;
+    origem?: string;
+    limite?: number;
+  } = {},
+) {
+  const params = new URLSearchParams();
+
+  if (filters.inicio) {
+    params.set("inicio", filters.inicio);
+  }
+
+  if (filters.fim) {
+    params.set("fim", filters.fim);
+  }
+
+  if (filters.tipo) {
+    params.set("tipo", filters.tipo);
+  }
+
+  if (filters.busca) {
+    params.set("busca", filters.busca);
+  }
+
+  if (filters.categoria) {
+    params.set("categoria", filters.categoria);
+  }
+
+  if (filters.origem) {
+    params.set("origem", filters.origem);
+  }
+
+  if (typeof filters.limite === "number") {
+    params.set("limite", String(filters.limite));
+  }
+
+  const query = params.toString();
+  const path = query.length > 0 ? `/api/movimentos?${query}` : "/api/movimentos";
+  return apiRequest<MovimentoResponse[]>(path, {}, token);
 }
 
 export async function createGasto(
   token: string,
-  payload: { descricao: string; valor: number },
+  payload: { descricao: string; valor: number; observacao?: string },
 ) {
   return apiRequest<GastoResponse>(
     "/api/gastos",
@@ -204,13 +263,63 @@ export async function createGasto(
 
 export async function createReceita(
   token: string,
-  payload: { descricao: string; valor: number; ehFixo: boolean },
+  payload: { descricao: string; valor: number; ehFixo: boolean; observacao?: string },
 ) {
   return apiRequest<ReceitaResponse>(
     "/api/receitas",
     {
       method: "POST",
       body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
+export async function updateGasto(
+  token: string,
+  gastoId: string,
+  payload: { descricao: string; valor: number; data: string; categoria: string; observacao?: string },
+) {
+  return apiRequest<GastoResponse>(
+    `/api/gastos/${gastoId}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
+export async function updateReceita(
+  token: string,
+  receitaId: string,
+  payload: { descricao: string; valor: number; data: string; ehFixo: boolean; observacao?: string },
+) {
+  return apiRequest<ReceitaResponse>(
+    `/api/receitas/${receitaId}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
+export async function deleteGasto(token: string, gastoId: string) {
+  await apiRequest<unknown>(
+    `/api/gastos/${gastoId}`,
+    {
+      method: "DELETE",
+    },
+    token,
+  );
+}
+
+export async function deleteReceita(token: string, receitaId: string) {
+  await apiRequest<unknown>(
+    `/api/receitas/${receitaId}`,
+    {
+      method: "DELETE",
     },
     token,
   );

@@ -19,6 +19,7 @@ export async function createGastoAction(formData: FormData) {
   const session = await requireSession();
   const descricao = String(formData.get("descricao") ?? "").trim();
   const valor = parseMoney(formData.get("valor"));
+  const observacao = String(formData.get("observacao") ?? "").trim();
 
   if (!descricao || Number.isNaN(valor) || valor <= 0) {
     redirect(
@@ -29,7 +30,7 @@ export async function createGastoAction(formData: FormData) {
   }
 
   try {
-    await createGasto(session.token, { descricao, valor });
+    await createGasto(session.token, { descricao, valor, observacao: observacao || undefined });
   } catch (error) {
     const message =
       error instanceof FinanceBotApiError
@@ -51,6 +52,7 @@ export async function createReceitaAction(formData: FormData) {
   const descricao = String(formData.get("descricao") ?? "").trim();
   const valor = parseMoney(formData.get("valor"));
   const ehFixo = formData.get("ehFixo") === "on";
+  const observacao = String(formData.get("observacao") ?? "").trim();
 
   if (!descricao || Number.isNaN(valor) || valor <= 0) {
     redirect(
@@ -61,7 +63,7 @@ export async function createReceitaAction(formData: FormData) {
   }
 
   try {
-    await createReceita(session.token, { descricao, valor, ehFixo });
+    await createReceita(session.token, { descricao, valor, ehFixo, observacao: observacao || undefined });
   } catch (error) {
     const message =
       error instanceof FinanceBotApiError

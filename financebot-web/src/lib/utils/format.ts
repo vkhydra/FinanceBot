@@ -8,6 +8,10 @@ const dateTimeFormatter = new Intl.DateTimeFormat("pt-BR", {
   timeStyle: "short",
 });
 
+const dateFormatter = new Intl.DateTimeFormat("pt-BR", {
+  dateStyle: "medium",
+});
+
 export function formatCurrency(value: number) {
   return currencyFormatter.format(value);
 }
@@ -15,4 +19,9 @@ export function formatCurrency(value: number) {
 export function formatDateTime(value: string | Date) {
   const date = typeof value === "string" ? new Date(value) : value;
   return dateTimeFormatter.format(date);
+}
+
+export function formatDate(value: string | Date) {
+  const date = typeof value === "string" ? new Date(value) : value;
+  return dateFormatter.format(date);
 }

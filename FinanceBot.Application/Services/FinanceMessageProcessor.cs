@@ -1,10 +1,12 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using FinanceBot.Application.Contracts;
 namespace FinanceBot.Application.Services;
 
 public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
 {
     private static readonly CultureInfo PtBr = CultureInfo.GetCultureInfo("pt-BR");
+    private static readonly Regex NumericValueRegex = new(@"\d+(?:[.,]\d{1,2})?", RegexOptions.Compiled);
     private readonly IFinanceOperationsService _financeOperationsService;
     private readonly IIdentityService _identityService;
     private readonly ICurrentUserContext _currentUserContext;
@@ -46,12 +48,13 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
 
         if (_currentUserContext.UsuarioId is null)
         {
-            return comandoNormalizado is "ajuda" or "comandos" or "help"
+            return IsHelpLikeCommand(comandoNormalizado)
                 ? ObterMenuVinculo()
                 : FinanceMessageResult.Falha(
                     "🔒 Este chat ainda não está vinculado.\n" +
-                    "Acesse a Web/API, gere seu código de vínculo e envie aqui:\n" +
-                    "• /vincular 123456");
+                    "Gere o codigo na Web/API e envie aqui:\n" +
+                    "• /vincular 123456\n\n" +
+                    "Se quiser, mande ajuda que eu te mostro o passo a passo.");
         }
 
         return comandoNormalizado switch
@@ -62,7 +65,7 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
             "upgrade" or "assinar" => await SolicitarUpgrade(cancellationToken),
             "desfazer" => await DesfazerUltimaAcao(cancellationToken),
             "plano" or "status" => await ObterStatusPlano(cancellationToken),
-            "comandos" or "ajuda" or "help" => ObterMenuAjuda(),
+            "comandos" or "ajuda" or "help" or "menu" or "start" or "oi" or "ola" or "olá" or "comecar" or "começar" => ObterMenuAjuda(),
             _ => await IdentificarERegistrar(mensagem, cancellationToken)
         };
     }
@@ -100,10 +103,11 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
         if (!valido)
         {
             return FinanceMessageResult.Falha(
-                "Não consegui entender esse lançamento.\n" +
-                "Use um destes formatos:\n" +
+                "Nao consegui entender esse gasto.\n" +
+                "Tente um destes formatos:\n" +
                 "• Gasto: Café 8,50\n" +
                 "• Gasto: Uber 15\n" +
+                "• Natural: gastei 18 no uber\n" +
                 "• Receita: + Freelance 350");
         }
 
@@ -123,7 +127,8 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
             "✅ Gasto registrado\n" +
             $"• Descrição: {FormatDescription(gasto.Descricao)}\n" +
             $"• Valor: {FormatCurrency(gasto.Valor)}\n" +
-            $"• Categoria: {gasto.Categoria}");
+            $"• Categoria: {gasto.Categoria}\n" +
+            "• Proximo passo: envie /resumo ou /movimentos se quiser conferir.");
     }
 
     private async Task<FinanceMessageResult> RegistrarReceita(string mensagem, CancellationToken cancellationToken)
@@ -134,11 +139,12 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
         if (!valido)
         {
             return FinanceMessageResult.Falha(
-                "Não consegui entender essa receita.\n" +
-                "Use um destes formatos:\n" +
+                "Nao consegui entender essa receita.\n" +
+                "Tente um destes formatos:\n" +
                 "• Receita: + Freelance 350\n" +
                 "• Receita: receita Venda 120\n" +
-                "• Receita fixa: + Salário 5000 fixo");
+                "• Receita fixa: + Salário 5000 fixo\n" +
+                "• Natural: recebi 350 do freelance");
         }
 
         ReceitaDto receita;
@@ -157,12 +163,24 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
             "✅ Receita registrada\n" +
             $"• Descrição: {FormatDescription(receita.Descricao)}\n" +
             $"• Valor: {FormatCurrency(receita.Valor)}\n" +
-            $"• Tipo: {(receita.EhFixo ? "Fixa" : "Variável")}");
+            $"• Tipo: {(receita.EhFixo ? "Fixa" : "Variável")}\n" +
+            "• Proximo passo: envie /resumo ou /movimentos se quiser conferir.");
     }
 
     private async Task<FinanceMessageResult> IdentificarERegistrar(string mensagem, CancellationToken cancellationToken)
     {
         string msg = mensagem.ToLowerInvariant();
+
+        if (TryParseNaturalLancamento(mensagem, out var ehReceita, out var descricao, out var valor, out var ehFixo))
+        {
+            var normalizada = ehReceita
+                ? $"+ {descricao} {valor.ToString("0.##", CultureInfo.InvariantCulture)}{(ehFixo ? " fixo" : string.Empty)}"
+                : $"{descricao} {valor.ToString("0.##", CultureInfo.InvariantCulture)}";
+
+            return ehReceita
+                ? await RegistrarReceita(normalizada, cancellationToken)
+                : await RegistrarGasto(normalizada, cancellationToken);
+        }
 
         if (msg.StartsWith("+") || msg.StartsWith("ganho") || msg.StartsWith("receita"))
         {
@@ -173,7 +191,10 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
         if (!resultado.Sucesso)
         {
             var menu = ObterMenuAjuda();
-            return FinanceMessageResult.Falha($"Não entendi essa mensagem.\n\n{menu.Mensagem}");
+            return FinanceMessageResult.Falha(
+                "Nao entendi essa mensagem.\n" +
+                "Se quiser, me mande algo como 'gastei 18 no uber' ou '+ freelance 350'.\n\n" +
+                menu.Mensagem);
         }
 
         return resultado;
@@ -195,7 +216,7 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
         var movimentos = await _financeOperationsService.ListarUltimosMovimentosAsync(cancellationToken: cancellationToken);
         if (!movimentos.Any())
         {
-            return FinanceMessageResult.Ok("📝 Ainda não há movimentações registradas.");
+            return FinanceMessageResult.Ok("📝 Ainda nao ha movimentacoes registradas.\nEnvie algo como 'Cafe 8,50' ou '+ freelance 350' para comecar.");
         }
 
         var listaFormatada = string.Join(
@@ -312,13 +333,15 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
     {
         return FinanceMessageResult.Ok(
             "🤖 FinanceBot\n\n" +
-            "Envie uma mensagem em um destes formatos:\n" +
+            "Voce pode registrar de forma direta, sem decorar muita coisa:\n" +
             "• Gasto: Café 8,50\n" +
             "• Gasto: Uber 15\n" +
+            "• Natural: gastei 18 no uber\n" +
             "• Receita: + Freelance 350\n" +
+            "• Natural: recebi 350 do freelance\n" +
             "• Receita fixa: + Salário 5000 fixo\n\n" +
             "Comandos disponíveis:\n" +
-            "• ajuda — mostra este menu\n" +
+            "• ajuda / menu / oi — mostra este menu\n" +
             "• total / resumo — mostra o resumo do dia\n" +
             "• listar / movimentos — mostra os últimos movimentos\n" +
             "• relatorio — mostra o relatório mensal (Premium/trial)\n" +
@@ -333,11 +356,12 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
     {
         return FinanceMessageResult.Ok(
             "🤖 FinanceBot\n\n" +
-            "Este chat ainda não está vinculado à sua conta.\n" +
-            "1. Faça login na API/Web.\n" +
-            "2. Gere um código de vínculo.\n" +
+            "Este chat ainda nao esta vinculado a sua conta.\n" +
+            "1. Faca login na Web/API.\n" +
+            "2. Gere um codigo de vinculo.\n" +
             "3. Envie aqui:\n" +
-            "• /vincular 123456");
+            "• /vincular 123456\n\n" +
+            "Depois disso eu ja consigo registrar seus lancamentos por aqui.");
     }
 
     private static bool TryParseLinkCommand(string comandoNormalizado, out string codigoVinculo)
@@ -362,6 +386,115 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
     private static bool IsUnlinkCommand(string comandoNormalizado)
     {
         return string.Equals(comandoNormalizado, "desvincular", StringComparison.Ordinal);
+    }
+
+    private static bool IsHelpLikeCommand(string comandoNormalizado)
+    {
+        return comandoNormalizado is "ajuda" or "comandos" or "help" or "menu" or "start" or "oi" or "ola" or "olá" or "comecar" or "começar";
+    }
+
+    private static bool TryParseNaturalLancamento(
+        string mensagem,
+        out bool ehReceita,
+        out string descricao,
+        out decimal valor,
+        out bool ehFixo)
+    {
+        if (TryParseNaturalPorPrefixo(mensagem, out var prefixo, out descricao, out valor, out ehFixo))
+        {
+            ehReceita = prefixo == "receita";
+            return true;
+        }
+
+        ehReceita = false;
+        descricao = string.Empty;
+        valor = 0;
+        ehFixo = false;
+        return false;
+    }
+
+    private static bool TryParseNaturalPorPrefixo(
+        string mensagem,
+        out string tipo,
+        out string descricao,
+        out decimal valor,
+        out bool ehFixo)
+    {
+        var normalizada = mensagem.Trim();
+
+        if (TryStripPrefix(normalizada, ["recebi", "ganhei"], out var textoReceita) &&
+            TryParseTextoNatural(textoReceita, out descricao, out valor, out ehFixo))
+        {
+            tipo = "receita";
+            return true;
+        }
+
+        if (TryStripPrefix(normalizada, ["gastei", "paguei", "comprei"], out var textoGasto) &&
+            TryParseTextoNatural(textoGasto, out descricao, out valor, out ehFixo))
+        {
+            tipo = "gasto";
+            return true;
+        }
+
+        tipo = string.Empty;
+        descricao = string.Empty;
+        valor = 0;
+        ehFixo = false;
+        return false;
+    }
+
+    private static bool TryStripPrefix(string mensagem, string[] prefixos, out string texto)
+    {
+        foreach (var prefixo in prefixos)
+        {
+            if (mensagem.StartsWith(prefixo + " ", StringComparison.OrdinalIgnoreCase))
+            {
+                texto = mensagem[(prefixo.Length + 1)..].Trim();
+                return true;
+            }
+        }
+
+        texto = string.Empty;
+        return false;
+    }
+
+    private static bool TryParseTextoNatural(string texto, out string descricao, out decimal valor, out bool ehFixo)
+    {
+        ehFixo = texto.EndsWith("fixo", StringComparison.OrdinalIgnoreCase);
+        var conteudo = ehFixo ? texto[..^4].Trim() : texto.Trim();
+        var match = NumericValueRegex.Match(conteudo);
+
+        if (!match.Success ||
+            !decimal.TryParse(match.Value.Replace(",", "."), CultureInfo.InvariantCulture, out valor))
+        {
+            descricao = string.Empty;
+            valor = 0;
+            return false;
+        }
+
+        var antes = conteudo[..match.Index].Trim();
+        var depois = conteudo[(match.Index + match.Length)..].Trim();
+        descricao = string.Join(' ', new[] { antes, depois }.Where(item => !string.IsNullOrWhiteSpace(item)));
+        descricao = TrimLeadingConnector(descricao);
+
+        return !string.IsNullOrWhiteSpace(descricao);
+    }
+
+    private static string TrimLeadingConnector(string descricao)
+    {
+        var conectores = new[] { "de ", "do ", "da ", "dos ", "das ", "no ", "na ", "nos ", "nas ", "em ", "com " };
+        var resultado = descricao.Trim();
+
+        while (true)
+        {
+            var conector = conectores.FirstOrDefault(item => resultado.StartsWith(item, StringComparison.OrdinalIgnoreCase));
+            if (conector is null)
+            {
+                return resultado.Trim();
+            }
+
+            resultado = resultado[conector.Length..].Trim();
+        }
     }
 
     private static string FormatCurrency(decimal value)

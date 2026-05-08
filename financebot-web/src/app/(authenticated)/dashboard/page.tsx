@@ -14,12 +14,15 @@ import {
   FinanceBotApiError,
   getBillingStatus,
   getMonthlyReport,
-  getMovimentos,
+  getUltimosMovimentos,
   getResumo,
 } from "@/lib/financebot-api";
 import { getQueryMessage } from "@/lib/action-state";
 import { requireSession } from "@/lib/session";
 import { formatCurrency, formatDateTime } from "@/lib/utils/format";
+
+const textareaClassName =
+  "flex min-h-20 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] dark:bg-input/30";
 
 type DashboardPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -35,7 +38,7 @@ export default async function DashboardPage({
 
   const [resumo, movimentos, billing] = await Promise.all([
     getResumo(session.token),
-    getMovimentos(session.token),
+    getUltimosMovimentos(session.token),
     getBillingStatus(session.token),
   ]);
   const canAccessMonthlyReport = billing.planoEfetivo === "Premium";
@@ -113,11 +116,16 @@ export default async function DashboardPage({
       <section className="grid gap-6 lg:grid-cols-[2fr_1fr]">
         <div className="grid gap-6">
           <Card>
-            <CardHeader>
-              <CardTitle>Ultimos movimentos</CardTitle>
-              <CardDescription>
-                Visao rapida do que voce registrou recentemente.
-              </CardDescription>
+            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="space-y-1">
+                <CardTitle>Ultimos movimentos</CardTitle>
+                <CardDescription>
+                  Visao rapida do que voce registrou recentemente.
+                </CardDescription>
+              </div>
+              <Link href="/lancamentos" className={buttonVariants({ variant: "outline" })}>
+                Ver todos os lancamentos
+              </Link>
             </CardHeader>
             <CardContent className="space-y-3">
               {movimentos.length === 0 ? (
@@ -135,9 +143,13 @@ export default async function DashboardPage({
                       <p className="text-sm text-muted-foreground">
                         {movimento.tipo}
                         {movimento.categoria ? ` • ${movimento.categoria}` : ""}
+                        {` • ${movimento.origem}`}
                         {" • "}
                         {formatDateTime(movimento.data)}
                       </p>
+                      {movimento.observacao ? (
+                        <p className="text-sm text-muted-foreground">{movimento.observacao}</p>
+                      ) : null}
                     </div>
                     <span className="font-semibold">
                       {formatCurrency(movimento.valor)}
@@ -234,6 +246,15 @@ export default async function DashboardPage({
                     <Label htmlFor="gasto-valor">Valor</Label>
                     <Input id="gasto-valor" name="valor" placeholder="Ex.: 45,90" required />
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="gasto-observacao">Observacao</Label>
+                    <textarea
+                      id="gasto-observacao"
+                      name="observacao"
+                      placeholder="Ex.: compra do fim de semana"
+                      className={textareaClassName}
+                    />
+                  </div>
                   <Button type="submit" className="w-full">
                     Salvar gasto
                   </Button>
@@ -255,6 +276,15 @@ export default async function DashboardPage({
                   <div className="space-y-2">
                     <Label htmlFor="receita-valor">Valor</Label>
                     <Input id="receita-valor" name="valor" placeholder="Ex.: 300,00" required />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="receita-observacao">Observacao</Label>
+                    <textarea
+                      id="receita-observacao"
+                      name="observacao"
+                      placeholder="Ex.: pagamento do cliente X"
+                      className={textareaClassName}
+                    />
                   </div>
                   <label className="flex items-center gap-3 rounded-lg border px-3 py-2 text-sm">
                     <Checkbox name="ehFixo" />

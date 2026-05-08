@@ -64,6 +64,10 @@ public class AppDbContext : DbContext
             entity.HasKey(transacao => transacao.Id);
             entity.Property(transacao => transacao.Descricao).IsRequired();
             entity.Property(transacao => transacao.Categoria).HasMaxLength(100);
+            entity.Property(transacao => transacao.Observacao).HasMaxLength(500);
+            entity.Property(transacao => transacao.Origem)
+                .HasConversion<string>()
+                .HasMaxLength(20);
             entity.HasIndex(transacao => new { transacao.UsuarioId, transacao.Data });
             entity.HasOne(transacao => transacao.Usuario)
                 .WithMany(usuario => usuario.Transacoes)
@@ -76,6 +80,10 @@ public class AppDbContext : DbContext
         {
             entity.HasKey(receita => receita.Id);
             entity.Property(receita => receita.Descricao).IsRequired();
+            entity.Property(receita => receita.Observacao).HasMaxLength(500);
+            entity.Property(receita => receita.Origem)
+                .HasConversion<string>()
+                .HasMaxLength(20);
             entity.HasIndex(receita => new { receita.UsuarioId, receita.Data });
             entity.HasOne(receita => receita.Usuario)
                 .WithMany(usuario => usuario.Receitas)

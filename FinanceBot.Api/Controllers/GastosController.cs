@@ -30,9 +30,42 @@ public sealed class GastosController : ControllerBase
         CancellationToken cancellationToken = default)
     {
         var gasto = await financeOperationsService.RegistrarGastoAsync(
-            new CriarGastoRequest(request.Descricao, request.Valor),
+            new CriarGastoRequest(request.Descricao, request.Valor, request.Observacao),
             cancellationToken);
 
         return StatusCode(StatusCodes.Status201Created, gasto);
+    }
+
+    [HttpPut("{gastoId:guid}")]
+    [ProducesResponseType(typeof(GastoDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<GastoDto>> Atualizar(
+        Guid gastoId,
+        [FromServices] IFinanceOperationsService financeOperationsService,
+        [FromBody] AtualizarGastoHttpRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var gasto = await financeOperationsService.AtualizarGastoAsync(
+            gastoId,
+            new AtualizarGastoRequest(request.Descricao, request.Valor, request.Data, request.Categoria, request.Observacao),
+            cancellationToken);
+
+        return gasto is null
+            ? NotFound(new { message = "Gasto não encontrado." })
+            : Ok(gasto);
+    }
+
+    [HttpDelete("{gastoId:guid}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Excluir(
+        Guid gastoId,
+        [FromServices] IFinanceOperationsService financeOperationsService,
+        CancellationToken cancellationToken = default)
+    {
+        var removido = await financeOperationsService.ExcluirGastoAsync(gastoId, cancellationToken);
+        return removido
+            ? NoContent()
+            : NotFound(new { message = "Gasto não encontrado." });
     }
 }

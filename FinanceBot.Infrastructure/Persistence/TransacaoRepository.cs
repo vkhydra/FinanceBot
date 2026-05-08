@@ -19,6 +19,11 @@ public sealed class TransacaoRepository : ITransacaoRepository
         await _db.Transacoes.AddAsync(transacao, cancellationToken);
     }
 
+    public async Task<Transacao?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        return await _db.Transacoes.FirstOrDefaultAsync(transacao => transacao.Id == id, cancellationToken);
+    }
+
     public async Task<int> CountInPeriodAsync(DateTime startUtc, DateTime endExclusiveUtc, CancellationToken cancellationToken = default)
     {
         return await _db.Transacoes

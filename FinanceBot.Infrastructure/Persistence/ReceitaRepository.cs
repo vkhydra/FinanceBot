@@ -19,6 +19,11 @@ public sealed class ReceitaRepository : IReceitaRepository
         await _db.Receitas.AddAsync(receita, cancellationToken);
     }
 
+    public async Task<Receita?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        return await _db.Receitas.FirstOrDefaultAsync(receita => receita.Id == id, cancellationToken);
+    }
+
     public async Task<int> CountInPeriodAsync(DateTime startUtc, DateTime endExclusiveUtc, CancellationToken cancellationToken = default)
     {
         return await _db.Receitas

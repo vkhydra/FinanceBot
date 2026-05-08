@@ -1,10 +1,8 @@
 namespace FinanceBot.Application.Contracts;
 
-public sealed record GastoDto(
-    Guid Id,
+public sealed record AtualizarGastoRequest(
     string Descricao,
     decimal Valor,
-    DateTime Data,
+    DateOnly Data,
     string Categoria,
-    string Origem,
-    string? Observacao);
+    string? Observacao = null);

@@ -10,4 +10,7 @@ public sealed class CriarGastoHttpRequest
 
     [Range(0.01d, double.MaxValue)]
     public decimal Valor { get; init; }
+
+    [MaxLength(500)]
+    public string? Observacao { get; init; }
 }

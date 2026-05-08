@@ -191,6 +191,101 @@ public sealed class ApiIntegrationTests
     }
 
     [Fact]
+    public async Task Unified_movements_listing_supports_filters_for_type_text_and_category()
+    {
+        await using var app = await TestAppInstance.CreateAsync(_postgres);
+
+        var auth = await app.RegisterAsync("listing");
+        await app.CreateReceitaAsync(auth.Token, "Salario", 5000m, true);
+        await app.CreateGastoAsync(auth.Token, "Mercado Central", 100m);
+        await app.CreateGastoAsync(auth.Token, "Uber Casa", 25m);
+
+        var mercadoMovimentos = await app.ListMovimentosAsync(
+            auth.Token,
+            "/api/movimentos?tipo=Gasto&categoria=Mercado&busca=Mercado&limite=20");
+
+        Assert.Single(mercadoMovimentos);
+        Assert.Equal("Gasto", mercadoMovimentos[0].Tipo);
+        Assert.Equal("Mercado Central", mercadoMovimentos[0].Descricao);
+        Assert.Equal("Mercado", mercadoMovimentos[0].Categoria);
+    }
+
+    [Fact]
+    public async Task Specific_gasto_and_receita_can_be_updated_and_deleted()
+    {
+        await using var app = await TestAppInstance.CreateAsync(_postgres);
+
+        var auth = await app.RegisterAsync("record-crud");
+        var gasto = await app.CreateGastoAsync(auth.Token, "Mercado bairro", 80m, "Compra do sabado");
+        var receita = await app.CreateReceitaAsync(auth.Token, "Freelance", 500m, false, "Projeto site");
+
+        var updatedGasto = await app.UpdateGastoAsync(
+            auth.Token,
+            gasto.Id,
+            "Mercado atacado",
+            95m,
+            new DateOnly(2026, 05, 01),
+            "Compras",
+            "Reposicao da despensa");
+        var updatedReceita = await app.UpdateReceitaAsync(
+            auth.Token,
+            receita.Id,
+            "Freelance maio",
+            650m,
+            new DateOnly(2026, 05, 02),
+            true,
+            "Projeto fechado");
+
+        Assert.Equal("Mercado atacado", updatedGasto.Descricao);
+        Assert.Equal(95m, updatedGasto.Valor);
+        Assert.Equal("Compras", updatedGasto.Categoria);
+        Assert.Equal("Reposicao da despensa", updatedGasto.Observacao);
+        Assert.Equal("Web", updatedGasto.Origem);
+        Assert.Equal(new DateOnly(2026, 05, 01), DateOnly.FromDateTime(updatedGasto.Data));
+        Assert.Equal("Freelance maio", updatedReceita.Descricao);
+        Assert.Equal(650m, updatedReceita.Valor);
+        Assert.True(updatedReceita.EhFixo);
+        Assert.Equal("Projeto fechado", updatedReceita.Observacao);
+        Assert.Equal("Web", updatedReceita.Origem);
+        Assert.Equal(new DateOnly(2026, 05, 02), DateOnly.FromDateTime(updatedReceita.Data));
+
+        await app.DeleteGastoAsync(auth.Token, gasto.Id);
+        await app.DeleteReceitaAsync(auth.Token, receita.Id);
+
+        var movimentos = await app.ListMovimentosAsync(auth.Token, "/api/movimentos?limite=20");
+
+        Assert.DoesNotContain(movimentos, item => item.Id == gasto.Id);
+        Assert.DoesNotContain(movimentos, item => item.Id == receita.Id);
+    }
+
+    [Fact]
+    public async Task Movements_expose_origin_and_observation_and_support_origin_filter()
+    {
+        await using var app = await TestAppInstance.CreateAsync(_postgres);
+
+        var auth = await app.RegisterAsync("record-origin");
+        var gastoWeb = await app.CreateGastoAsync(auth.Token, "Mercado premium", 120m, "Compra mensal");
+
+        await using (var scope = app.Factory.Services.CreateAsyncScope())
+        {
+            var currentUser = scope.ServiceProvider.GetRequiredService<ICurrentUserContextAccessor>();
+            currentUser.SetTelegramChatId(998877);
+            currentUser.SetAuthenticatedUser(auth.UsuarioId, auth.Email);
+
+            var processor = scope.ServiceProvider.GetRequiredService<IFinanceMessageProcessor>();
+            var result = await processor.ProcessarMensagemAsync(new FinanceMessageRequest("gastei 18 no uber", 998877));
+            Assert.True(result.Sucesso);
+        }
+
+        var todos = await app.ListMovimentosAsync(auth.Token, "/api/movimentos?limite=20");
+        var telegramOnly = await app.ListMovimentosAsync(auth.Token, "/api/movimentos?origem=Telegram&limite=20");
+
+        Assert.Contains(todos, item => item.Id == gastoWeb.Id && item.Origem == "Web" && item.Observacao == "Compra mensal");
+        Assert.Contains(telegramOnly, item => item.Origem == "Telegram" && item.Descricao == "uber");
+        Assert.DoesNotContain(telegramOnly, item => item.Origem == "Web");
+    }
+
+    [Fact]
     public async Task Free_plan_blocks_new_launches_after_monthly_limit_when_trial_is_disabled()
     {
         await using var app = await TestAppInstance.CreateAsync(_postgres);
@@ -273,8 +368,8 @@ public sealed class ApiIntegrationTests
         {
             insertCommand.CommandText =
                 """
-                INSERT INTO public."Transacoes" ("Id", "UsuarioId", "Descricao", "Valor", "Data", "Categoria")
-                VALUES (@id, @usuario_id, @descricao, @valor, @data, @categoria)
+                INSERT INTO public."Transacoes" ("Id", "UsuarioId", "Descricao", "Valor", "Data", "Categoria", "Origem")
+                VALUES (@id, @usuario_id, @descricao, @valor, @data, @categoria, @origem)
                 """;
             insertCommand.Parameters.AddWithValue("id", Guid.NewGuid());
             insertCommand.Parameters.AddWithValue("usuario_id", secondUser.UsuarioId);
@@ -282,6 +377,7 @@ public sealed class ApiIntegrationTests
             insertCommand.Parameters.AddWithValue("valor", 99m);
             insertCommand.Parameters.AddWithValue("data", DateTime.UtcNow);
             insertCommand.Parameters.AddWithValue("categoria", "Outros");
+            insertCommand.Parameters.AddWithValue("origem", "Web");
 
             await Assert.ThrowsAsync<PostgresException>(() => insertCommand.ExecuteNonQueryAsync());
         }
@@ -362,11 +458,11 @@ public sealed class ApiIntegrationTests
             return code!;
         }
 
-        public async Task<GastoResponse> CreateGastoAsync(string token, string descricao, decimal valor)
+        public async Task<GastoResponse> CreateGastoAsync(string token, string descricao, decimal valor, string? observacao = null)
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/gastos")
             {
-                Content = JsonContent.Create(new { Descricao = descricao, Valor = valor })
+                Content = JsonContent.Create(new { Descricao = descricao, Valor = valor, Observacao = observacao })
             };
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
@@ -382,11 +478,11 @@ public sealed class ApiIntegrationTests
             return gasto!;
         }
 
-        public async Task CreateReceitaAsync(string token, string descricao, decimal valor, bool ehFixo)
+        public async Task<ReceitaResponse> CreateReceitaAsync(string token, string descricao, decimal valor, bool ehFixo, string? observacao = null)
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/receitas")
             {
-                Content = JsonContent.Create(new { Descricao = descricao, Valor = valor, EhFixo = ehFixo })
+                Content = JsonContent.Create(new { Descricao = descricao, Valor = valor, EhFixo = ehFixo, Observacao = observacao })
             };
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
@@ -396,6 +492,10 @@ public sealed class ApiIntegrationTests
                 var body = await response.Content.ReadAsStringAsync();
                 Assert.Fail($"Expected 201 Created but got {(int)response.StatusCode}: {body}");
             }
+
+            var receita = await response.Content.ReadFromJsonAsync<ReceitaResponse>();
+            Assert.NotNull(receita);
+            return receita!;
         }
 
         public async Task<BillingStatusResponse> GetBillingStatusAsync(string token)
@@ -434,7 +534,12 @@ public sealed class ApiIntegrationTests
 
         public async Task<List<MovimentoResponse>> GetMovimentosAsync(string token)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, "/api/movimentos/ultimos");
+            return await ListMovimentosAsync(token, "/api/movimentos/ultimos");
+        }
+
+        public async Task<List<MovimentoResponse>> ListMovimentosAsync(string token, string path)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, path);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
             using var response = await Client.SendAsync(request);
@@ -492,6 +597,86 @@ public sealed class ApiIntegrationTests
             return result!;
         }
 
+        public async Task<GastoResponse> UpdateGastoAsync(
+            string token,
+            Guid gastoId,
+            string descricao,
+            decimal valor,
+            DateOnly data,
+            string categoria,
+            string? observacao = null)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Put, $"/api/gastos/{gastoId}")
+            {
+                Content = JsonContent.Create(new { Descricao = descricao, Valor = valor, Data = data, Categoria = categoria, Observacao = observacao })
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            using var response = await Client.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                throw new HttpRequestException($"Update gasto request failed with {(int)response.StatusCode}: {body}");
+            }
+
+            var gasto = await response.Content.ReadFromJsonAsync<GastoResponse>();
+            Assert.NotNull(gasto);
+            return gasto!;
+        }
+
+        public async Task<ReceitaResponse> UpdateReceitaAsync(
+            string token,
+            Guid receitaId,
+            string descricao,
+            decimal valor,
+            DateOnly data,
+            bool ehFixo,
+            string? observacao = null)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Put, $"/api/receitas/{receitaId}")
+            {
+                Content = JsonContent.Create(new { Descricao = descricao, Valor = valor, Data = data, EhFixo = ehFixo, Observacao = observacao })
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            using var response = await Client.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                throw new HttpRequestException($"Update receita request failed with {(int)response.StatusCode}: {body}");
+            }
+
+            var receita = await response.Content.ReadFromJsonAsync<ReceitaResponse>();
+            Assert.NotNull(receita);
+            return receita!;
+        }
+
+        public async Task DeleteGastoAsync(string token, Guid gastoId)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/gastos/{gastoId}");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            using var response = await Client.SendAsync(request);
+            if (response.StatusCode != HttpStatusCode.NoContent)
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                throw new HttpRequestException($"Delete gasto request failed with {(int)response.StatusCode}: {body}");
+            }
+        }
+
+        public async Task DeleteReceitaAsync(string token, Guid receitaId)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/receitas/{receitaId}");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            using var response = await Client.SendAsync(request);
+            if (response.StatusCode != HttpStatusCode.NoContent)
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                throw new HttpRequestException($"Delete receita request failed with {(int)response.StatusCode}: {body}");
+            }
+        }
+
         public async Task DisableTrialAsync(Guid usuarioId)
         {
             await using var connection = new NpgsqlConnection(ConnectionString);
@@ -544,9 +729,11 @@ public sealed class ApiIntegrationTests
         DateTime? SolicitadoEmUtc,
         bool UpgradePendente);
 
-    private sealed record MovimentoResponse(string Tipo, string Descricao, string? Categoria);
+    private sealed record MovimentoResponse(Guid Id, string Tipo, string Descricao, string? Categoria, string Origem, string? Observacao);
 
-    private sealed record GastoResponse(Guid Id, string Descricao, decimal Valor, DateTime Data, string Categoria);
+    private sealed record GastoResponse(Guid Id, string Descricao, decimal Valor, DateTime Data, string Categoria, string Origem, string? Observacao);
+
+    private sealed record ReceitaResponse(Guid Id, string Descricao, decimal Valor, DateTime Data, bool EhFixo, string Origem, string? Observacao);
 
     private sealed record RelatorioMensalResponse(
         int Ano,

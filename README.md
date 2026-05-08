@@ -104,6 +104,9 @@ Fluxos iniciais da API:
 - `POST /auth/login`
 - `POST /auth/gerar-vinculo` (Bearer token)
 - `POST /auth/desvincular` (Bearer token)
+- `POST /api/gastos` / `PUT /api/gastos/{id}` / `DELETE /api/gastos/{id}` (Bearer token)
+- `POST /api/receitas` / `PUT /api/receitas/{id}` / `DELETE /api/receitas/{id}` (Bearer token)
+- `GET /api/movimentos` e `GET /api/movimentos/ultimos` (Bearer token, com filtros por periodo/tipo/categoria/texto/origem)
 - `GET /api/billing/status` (Bearer token)
 - `POST /api/billing/solicitar-upgrade` (Bearer token)
 - `GET /api/relatorios/mensal` (Bearer token, Premium/trial)
@@ -141,14 +144,22 @@ Rotas iniciais da Web:
 - `/login`
 - `/register`
 - `/dashboard`
+- `/lancamentos`
 - `/plano`
 - `/telegram`
 
 Na interface Web atual:
 - o `/dashboard` exibe resumo do dia, ultimos movimentos, status do plano/quota e o relatorio mensal quando o acesso efetivo estiver em Premium/trial;
+- o `/dashboard` permite registrar gastos/receitas com observacao opcional, mantendo o resumo como superficie de entrada rapida;
+- o `/lancamentos` organiza gastos e receitas em uma visao unificada, com filtros por periodo, tipo, categoria, origem e texto, alem de permitir editar/excluir cada item com data editavel, observacao, origem visivel e correcao manual de categoria nos gastos;
 - o `/plano` concentra a experiencia comercial do upgrade, com estado de trial, pedido pendente, beneficios do Premium e CTA dedicado;
 - o `/dashboard` tambem permite registrar o pedido de upgrade para o Premium e refletir o estado pendente desse fluxo;
 - o `/telegram` permite gerar um novo codigo de vinculo e tambem disparar a desvinculacao autenticada pela propria interface.
+
+No Telegram, alem dos comandos, o bot tambem aceita formas mais naturais para registrar movimentos, como:
+- `gastei 18 no uber`
+- `recebi 350 do freelance`
+- `oi` / `menu` para mostrar a ajuda
 
 ### 7. Executar a stack completa com Docker
 Exporte o token do bot e a chave JWT no shell:

@@ -25,6 +25,9 @@ export function ShellHeader({ email }: ShellHeaderProps) {
             <Link href="/dashboard" className="transition-colors hover:text-foreground">
               Dashboard
             </Link>
+            <Link href="/lancamentos" className="transition-colors hover:text-foreground">
+              Lancamentos
+            </Link>
             <Link href="/plano" className="transition-colors hover:text-foreground">
               Plano
             </Link>

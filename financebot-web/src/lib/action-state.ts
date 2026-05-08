@@ -9,6 +9,13 @@ export function getQueryMessage(
 }
 
 export function buildRedirect(path: string, params: Record<string, string>) {
-  const query = new URLSearchParams(params).toString();
-  return query.length > 0 ? `${path}?${query}` : path;
+  const [pathname, currentQuery = ""] = path.split("?", 2);
+  const nextParams = new URLSearchParams(currentQuery);
+
+  for (const [key, value] of Object.entries(params)) {
+    nextParams.set(key, value);
+  }
+
+  const query = nextParams.toString();
+  return query.length > 0 ? `${pathname}?${query}` : pathname;
 }

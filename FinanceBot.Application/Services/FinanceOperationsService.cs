@@ -1,5 +1,6 @@
 using FinanceBot.Application.Contracts;
 using FinanceBot.Domain.Entities;
+using FinanceBot.Domain.Enums;
 
 namespace FinanceBot.Application.Services;
 
@@ -39,7 +40,9 @@ public sealed class FinanceOperationsService : IFinanceOperationsService
             Descricao = request.Descricao.Trim(),
             Valor = request.Valor,
             Data = DateTime.UtcNow,
-            Categoria = _gastoCategorizationService.Categorize(request.Descricao)
+            Categoria = _gastoCategorizationService.Categorize(request.Descricao),
+            Observacao = NormalizeObservacao(request.Observacao),
+            Origem = ResolveOrigem()
         };
 
         await _transacoes.AddAsync(transacao, cancellationToken);
@@ -59,13 +62,89 @@ public sealed class FinanceOperationsService : IFinanceOperationsService
             Descricao = request.Descricao.Trim(),
             Valor = request.Valor,
             Data = DateTime.UtcNow,
-            EhFixo = request.EhFixo
+            EhFixo = request.EhFixo,
+            Observacao = NormalizeObservacao(request.Observacao),
+            Origem = ResolveOrigem()
         };
 
         await _receitas.AddAsync(receita, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return Map(receita);
+    }
+
+    public async Task<GastoDto?> AtualizarGastoAsync(
+        Guid gastoId,
+        AtualizarGastoRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        _ = GetCurrentUserId();
+        var gasto = await _transacoes.GetByIdAsync(gastoId, cancellationToken);
+        if (gasto is null)
+        {
+            return null;
+        }
+
+        gasto.Descricao = request.Descricao.Trim();
+        gasto.Valor = request.Valor;
+        gasto.Data = CombineDateWithExistingTime(gasto.Data, request.Data);
+        gasto.Categoria = string.IsNullOrWhiteSpace(request.Categoria)
+            ? _gastoCategorizationService.Categorize(request.Descricao)
+            : request.Categoria.Trim();
+        gasto.Observacao = NormalizeObservacao(request.Observacao);
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return Map(gasto);
+    }
+
+    public async Task<ReceitaDto?> AtualizarReceitaAsync(
+        Guid receitaId,
+        AtualizarReceitaRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        _ = GetCurrentUserId();
+        var receita = await _receitas.GetByIdAsync(receitaId, cancellationToken);
+        if (receita is null)
+        {
+            return null;
+        }
+
+        receita.Descricao = request.Descricao.Trim();
+        receita.Valor = request.Valor;
+        receita.Data = CombineDateWithExistingTime(receita.Data, request.Data);
+        receita.EhFixo = request.EhFixo;
+        receita.Observacao = NormalizeObservacao(request.Observacao);
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return Map(receita);
+    }
+
+    public async Task<bool> ExcluirGastoAsync(Guid gastoId, CancellationToken cancellationToken = default)
+    {
+        _ = GetCurrentUserId();
+        var gasto = await _transacoes.GetByIdAsync(gastoId, cancellationToken);
+        if (gasto is null)
+        {
+            return false;
+        }
+
+        _transacoes.Remove(gasto);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    public async Task<bool> ExcluirReceitaAsync(Guid receitaId, CancellationToken cancellationToken = default)
+    {
+        _ = GetCurrentUserId();
+        var receita = await _receitas.GetByIdAsync(receitaId, cancellationToken);
+        if (receita is null)
+        {
+            return false;
+        }
+
+        _receitas.Remove(receita);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return true;
     }
 
     public async Task<IReadOnlyList<GastoDto>> ListarGastosAsync(int limite = 20, CancellationToken cancellationToken = default)
@@ -80,6 +159,43 @@ public sealed class FinanceOperationsService : IFinanceOperationsService
         _ = GetCurrentUserId();
         var receitas = await _receitas.ListRecentAsync(NormalizeTake(limite, 20), cancellationToken);
         return receitas.Select(Map).ToList();
+    }
+
+    public async Task<IReadOnlyList<MovimentoDto>> ListarMovimentosAsync(
+        ListarMovimentosRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        _ = GetCurrentUserId();
+
+        var take = NormalizeTake(request.Limite, 100, 200);
+        var sourceTake = NormalizeTake(Math.Max(take * 2, 100), 100, 400);
+        var (startUtc, endExclusiveUtc) = BuildPeriodo(request.Inicio, request.Fim);
+
+        IReadOnlyList<Transacao> gastos;
+        IReadOnlyList<Receita> receitas;
+
+        if (startUtc.HasValue && endExclusiveUtc.HasValue)
+        {
+            gastos = await _transacoes.ListInPeriodAsync(startUtc.Value, endExclusiveUtc.Value, cancellationToken);
+            receitas = await _receitas.ListInPeriodAsync(startUtc.Value, endExclusiveUtc.Value, cancellationToken);
+        }
+        else
+        {
+            gastos = await _transacoes.ListRecentAsync(sourceTake, cancellationToken);
+            receitas = await _receitas.ListRecentAsync(sourceTake, cancellationToken);
+        }
+
+        var movimentos = gastos.Select(MapMovimento)
+            .Concat(receitas.Select(MapMovimento))
+            .Where(movimento => MatchesTipo(movimento, request.Tipo))
+            .Where(movimento => MatchesBusca(movimento, request.Busca))
+            .Where(movimento => MatchesCategoria(movimento, request.Categoria))
+            .Where(movimento => MatchesOrigem(movimento, request.Origem))
+            .OrderByDescending(movimento => movimento.Data)
+            .Take(take)
+            .ToList();
+
+        return movimentos;
     }
 
     public async Task<ResumoFinanceiroDto> ObterResumoAsync(DateOnly? data = null, CancellationToken cancellationToken = default)
@@ -140,8 +256,8 @@ public sealed class FinanceOperationsService : IFinanceOperationsService
         var ultimosGastos = await _transacoes.ListRecentAsync(take, cancellationToken);
         var ultimasReceitas = await _receitas.ListRecentAsync(take, cancellationToken);
 
-        return ultimosGastos.Select(g => new MovimentoDto("Gasto", g.Descricao, g.Valor, g.Data, g.Categoria ?? "Outros"))
-            .Union(ultimasReceitas.Select(r => new MovimentoDto("Receita", r.Descricao, r.Valor, r.Data, null)))
+        return ultimosGastos.Select(MapMovimento)
+            .Union(ultimasReceitas.Select(MapMovimento))
             .OrderByDescending(m => m.Data)
             .Take(take)
             .ToList();
@@ -182,10 +298,126 @@ public sealed class FinanceOperationsService : IFinanceOperationsService
     }
 
     private static GastoDto Map(Transacao transacao) =>
-        new(transacao.Id, transacao.Descricao, transacao.Valor, transacao.Data, transacao.Categoria ?? "Outros");
+        new(
+            transacao.Id,
+            transacao.Descricao,
+            transacao.Valor,
+            transacao.Data,
+            transacao.Categoria ?? "Outros",
+            transacao.Origem.ToString(),
+            transacao.Observacao);
 
     private static ReceitaDto Map(Receita receita) =>
-        new(receita.Id, receita.Descricao, receita.Valor, receita.Data, receita.EhFixo);
+        new(
+            receita.Id,
+            receita.Descricao,
+            receita.Valor,
+            receita.Data,
+            receita.EhFixo,
+            receita.Origem.ToString(),
+            receita.Observacao);
+
+    private static MovimentoDto MapMovimento(Transacao transacao) =>
+        new(
+            transacao.Id,
+            "Gasto",
+            transacao.Descricao,
+            transacao.Valor,
+            transacao.Data,
+            transacao.Categoria ?? "Outros",
+            null,
+            transacao.Origem.ToString(),
+            transacao.Observacao);
+
+    private static MovimentoDto MapMovimento(Receita receita) =>
+        new(
+            receita.Id,
+            "Receita",
+            receita.Descricao,
+            receita.Valor,
+            receita.Data,
+            null,
+            receita.EhFixo,
+            receita.Origem.ToString(),
+            receita.Observacao);
+
+    private static (DateTime? StartUtc, DateTime? EndExclusiveUtc) BuildPeriodo(DateOnly? inicio, DateOnly? fim)
+    {
+        if (!inicio.HasValue && !fim.HasValue)
+        {
+            return (null, null);
+        }
+
+        var startDate = inicio ?? fim!.Value;
+        var endDate = fim ?? inicio!.Value;
+
+        var startUtc = startDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+        var endExclusiveUtc = endDate.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+        return (startUtc, endExclusiveUtc);
+    }
+
+    private static bool MatchesTipo(MovimentoDto movimento, string? tipo)
+    {
+        if (string.IsNullOrWhiteSpace(tipo))
+        {
+            return true;
+        }
+
+        return string.Equals(movimento.Tipo, tipo.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool MatchesBusca(MovimentoDto movimento, string? busca)
+    {
+        if (string.IsNullOrWhiteSpace(busca))
+        {
+            return true;
+        }
+
+        return movimento.Descricao.Contains(busca.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool MatchesCategoria(MovimentoDto movimento, string? categoria)
+    {
+        if (string.IsNullOrWhiteSpace(categoria))
+        {
+            return true;
+        }
+
+        return string.Equals(movimento.Categoria, categoria.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool MatchesOrigem(MovimentoDto movimento, string? origem)
+    {
+        if (string.IsNullOrWhiteSpace(origem))
+        {
+            return true;
+        }
+
+        return string.Equals(movimento.Origem, origem.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static DateTime CombineDateWithExistingTime(DateTime existingUtc, DateOnly date)
+    {
+        var utc = existingUtc.Kind == DateTimeKind.Utc
+            ? existingUtc
+            : DateTime.SpecifyKind(existingUtc, DateTimeKind.Utc);
+
+        var time = utc.TimeOfDay;
+        return new DateTime(date.Year, date.Month, date.Day, time.Hours, time.Minutes, time.Seconds, DateTimeKind.Utc)
+            .AddTicks(time.Ticks % TimeSpan.TicksPerSecond);
+    }
+
+    private static string? NormalizeObservacao(string? observacao)
+    {
+        return string.IsNullOrWhiteSpace(observacao) ? null : observacao.Trim();
+    }
+
+    private OrigemLancamento ResolveOrigem()
+    {
+        return _currentUserContext.TelegramChatId.HasValue
+            ? OrigemLancamento.Telegram
+            : OrigemLancamento.Web;
+    }
 
     private Guid GetCurrentUserId()
     {
