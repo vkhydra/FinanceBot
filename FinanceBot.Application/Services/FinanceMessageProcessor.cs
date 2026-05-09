@@ -48,19 +48,17 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
             return IsHelpLikeCommand(comandoNormalizado)
                 ? ObterMenuVinculo()
                 : FinanceMessageResult.FalhaHtml(BuildMessage(
-                    "🔒 <b>Chat não vinculado</b>",
-                    "Para registrar lançamentos por aqui, primeiro conecte este chat à sua conta.",
-                    string.Join(
-                        "\n",
-                        "1. Acesse a Web ou a API.",
-                        "2. Gere um código de vínculo.",
-                        $"3. Envie {Code("/vincular 123456")} neste chat."),
-                    $"Se precisar, envie {Code("ajuda")} e eu mostro o passo a passo."));
+                    "🔒 <b>Este chat ainda não está conectado</b>",
+                    "Antes de registrar gastos e receitas por aqui, você precisa ligar este Telegram à sua conta do FinanceBot.",
+                    BuildLinkInstructions(),
+                    $"Depois disso, você já pode enviar {Code("cafe 8,50")} ou {Code("+ freelance 350")}.",
+                    $"Se quiser, envie {Code("ajuda")} e eu mostro tudo resumido."));
         }
 
         return comandoNormalizado switch
         {
             "total" or "resumo" => await ObterResumoFinanceiro(cancellationToken),
+            "orcamento" or "orçamento" => await ObterOrcamentoMensal(cancellationToken),
             "listar" or "movimentos" => await ListarUltimosRegistros(cancellationToken),
             "relatorio" or "relatório" => await ObterRelatorioMensal(cancellationToken),
             "upgrade" or "assinar" => await SolicitarUpgrade(cancellationToken),
@@ -100,7 +98,7 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
 
     private async Task<FinanceMessageResult> RegistrarGasto(string mensagem, CancellationToken cancellationToken)
     {
-        var (valido, desc, valor, _) = ParseDados(mensagem);
+        var (valido, desc, valor, ehFixo) = ParseDados(mensagem);
         if (!valido)
         {
             return FinanceMessageResult.FalhaHtml(BuildMessage(
@@ -109,6 +107,7 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
                 BuildBulletList(
                     Bullet(Code("Café 8,50")),
                     Bullet(Code("Uber 15")),
+                    Bullet(Code("aluguel 1200 fixo")),
                     Bullet(Code("gastei 18 no uber")))));
         }
 
@@ -116,7 +115,7 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
         try
         {
             gasto = await _financeOperationsService.RegistrarGastoAsync(
-                new CriarGastoRequest(desc, valor),
+                new CriarGastoRequest(desc, valor, EhFixo: ehFixo),
                 cancellationToken);
         }
         catch (AccessPolicyException ex)
@@ -132,7 +131,8 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
             BuildBulletList(
                 BulletField("Descrição", FormatDescription(gasto.Descricao)),
                 BulletField("Valor", FormatCurrency(gasto.Valor)),
-                BulletField("Categoria", gasto.Categoria)),
+                BulletField("Categoria", gasto.Categoria),
+                BulletField("Perfil", FormatGastoProfile(gasto.EhFixo, gasto.EhEssencial))),
             $"Próximo passo: consulte {Code("/resumo")} ou {Code("/movimentos")}."));
     }
 
@@ -212,13 +212,69 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
     private async Task<FinanceMessageResult> ObterResumoFinanceiro(CancellationToken cancellationToken)
     {
         var resumo = await _financeOperationsService.ObterResumoAsync(cancellationToken: cancellationToken);
+        var orcamento = await _financeOperationsService.ObterOrcamentoMensalAsync(cancellationToken: cancellationToken);
 
         return FinanceMessageResult.OkHtml(BuildMessage(
             "📊 <b>Resumo do dia</b>",
             BuildBulletList(
                 BulletField("Entradas", FormatCurrency(resumo.Ganhos)),
                 BulletField("Saídas", FormatCurrency(resumo.Gastos)),
-                BulletField("Saldo", FormatCurrency(resumo.Saldo)))));
+                BulletField("Saldo", FormatCurrency(resumo.Saldo))),
+            Encode(BuildBudgetMonthStatusLine(orcamento))));
+    }
+
+    private async Task<FinanceMessageResult> ObterOrcamentoMensal(CancellationToken cancellationToken)
+    {
+        var orcamento = await _financeOperationsService.ObterOrcamentoMensalAsync(cancellationToken: cancellationToken);
+        var referenciaAnterior = new DateTime(orcamento.Ano, orcamento.Mes, 1, 0, 0, 0, DateTimeKind.Utc).AddMonths(-1);
+        var orcamentoAnterior = await _financeOperationsService.ObterOrcamentoMensalAsync(
+            referenciaAnterior.Year,
+            referenciaAnterior.Month,
+            cancellationToken);
+        var comparacaoAnterior = BuildBudgetMonthComparisonText(orcamento, orcamentoAnterior);
+        var ritmoDiario = BuildBudgetDailyAllowanceText(orcamento);
+        var compromissoBase = $"Os gastos fixos já comprometem {FormatCurrency(orcamento.GastoFixo)} e os essenciais {FormatCurrency(orcamento.GastoEssencial)}.";
+        var sugestao = BuildBudgetSuggestionGuidanceText(orcamento);
+
+        if (!orcamento.PossuiOrcamentoDefinido)
+        {
+            return FinanceMessageResult.OkHtml(BuildMessage(
+                "🎯 <b>Orçamento do mês</b>",
+                BuildBulletList(
+                    BulletField("Referência", FormatBudgetReference(orcamento.Ano, orcamento.Mes)),
+                    BulletField("Gastos acumulados", FormatCurrency(orcamento.TotalGastos)),
+                    BulletField("Projeção", FormatCurrency(orcamento.ProjecaoFechamento)),
+                    BulletField($"Vs {FormatBudgetReference(referenciaAnterior.Year, referenciaAnterior.Month)}", comparacaoAnterior),
+                    BulletField("Fixos", FormatCurrency(orcamento.GastoFixo)),
+                    BulletField("Essenciais", FormatCurrency(orcamento.GastoEssencial)),
+                    BulletField("Sugestão equilibrada", FormatBudgetSuggestionValue(orcamento.SugestaoLimiteEquilibrado))),
+                Encode(compromissoBase),
+                Encode(sugestao),
+                "Você ainda não definiu um limite mensal na Web. Faça isso no dashboard para eu passar a responder quanto ainda pode gastar."));
+        }
+
+        var status = orcamento.Estourado
+            ? $"Você já ultrapassou o limite em {FormatCurrency(Math.Abs(orcamento.Restante ?? 0m))}."
+            : orcamento.EstouroProjetado
+                ? $"Mantido o ritmo atual, o mês deve fechar em {FormatCurrency(orcamento.ProjecaoFechamento)}."
+                : orcamento.DiasRestantes > 0
+                    ? $"Você ainda tem {FormatCurrency(orcamento.Restante ?? 0m)} disponíveis neste mês, algo perto de {ritmoDiario} até o fechamento."
+                    : $"O mês está fechando com {FormatCurrency(orcamento.Restante ?? 0m)} de folga.";
+
+        return FinanceMessageResult.OkHtml(BuildMessage(
+            "🎯 <b>Orçamento do mês</b>",
+            BuildBulletList(
+                BulletField("Referência", $"{orcamento.Mes:D2}/{orcamento.Ano}"),
+                BulletField("Limite", FormatCurrency(orcamento.LimiteGastos ?? 0m)),
+                BulletField("Gastos", FormatCurrency(orcamento.TotalGastos)),
+                BulletField("Restante", FormatCurrency(orcamento.Restante ?? 0m)),
+                BulletField("Por dia até fechar", ritmoDiario),
+                BulletField("Projeção", FormatCurrency(orcamento.ProjecaoFechamento)),
+                BulletField($"Vs {FormatBudgetReference(referenciaAnterior.Year, referenciaAnterior.Month)}", comparacaoAnterior),
+                BulletField("Sugestão equilibrada", FormatBudgetSuggestionValue(orcamento.SugestaoLimiteEquilibrado))),
+            Encode(status),
+            Encode(compromissoBase),
+            Encode(sugestao)));
     }
 
     private async Task<FinanceMessageResult> ListarUltimosRegistros(CancellationToken cancellationToken)
@@ -234,7 +290,7 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
         var listaFormatada = string.Join(
             "\n",
             movimentos.Select((x, index) =>
-                $"{index + 1}. {(x.Tipo == "Receita" ? "📈" : "📉")} <b>{Encode(FormatDescription(x.Descricao))}</b> — {Encode(FormatCurrency(x.Valor))}{FormatCategoriaHtml(x.Categoria)}"));
+                $"{index + 1}. {(x.Tipo == "Receita" ? "📈" : "📉")} <b>{Encode(FormatDescription(x.Descricao))}</b> — {Encode(FormatCurrency(x.Valor))}{FormatCategoriaHtml(x.Categoria)}{FormatPerfilHtml(x)}"));
 
         return FinanceMessageResult.OkHtml(BuildMessage(
             "🧾 <b>Últimos lançamentos</b>",
@@ -362,40 +418,39 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
     {
         return FinanceMessageResult.OkHtml(BuildMessage(
             "🤖 <b>FinanceBot</b>",
-            "Envie uma mensagem curta e eu registro o lançamento para você.",
+            "Para registrar, basta enviar a mensagem no chat. Você não precisa usar comando para anotar.",
             string.Join(
                 "\n",
-                "<b>Exemplos rápidos</b>",
-                Bullet(Code("Café 8,50")),
-                Bullet(Code("gastei 18 no uber")),
-                Bullet(Code("+ freelance 350")),
-                Bullet(Code("recebi 350 do freelance")),
-                Bullet(Code("+ salário 5000 fixo"))),
+                "<b>Como registrar gastos</b>",
+                Bullet($"Use o formato {Code("descricao valor")}"),
+                Bullet($"Ex.: {Code("cafe 8,50")}"),
+                Bullet($"Ex.: {Code("uber 18")}"),
+                Bullet($"Ex.: {Code("aluguel 1200 fixo")}")),
             string.Join(
                 "\n",
-                "<b>Comandos</b>",
-                Bullet($"{Code("ajuda")} ou {Code("menu")} — mostra este menu"),
-                Bullet($"{Code("resumo")} ou {Code("total")} — mostra o fechamento do dia"),
-                Bullet($"{Code("movimentos")} ou {Code("listar")} — mostra os últimos lançamentos"),
-                Bullet($"{Code("relatorio")} — mostra o relatório mensal (Premium ou trial)"),
-                Bullet($"{Code("plano")} ou {Code("status")} — mostra seu plano e sua quota atual"),
-                Bullet($"{Code("upgrade")} ou {Code("assinar")} — registra seu interesse no Premium"),
-                Bullet($"{Code("desfazer")} — remove o último lançamento"),
-                Bullet($"{Code("desvincular")} — desconecta este chat da conta")),
-            $"Você também pode usar os comandos com {Code("/")} no início."));
+                "<b>Como registrar receitas</b>",
+                Bullet($"Use o formato {Code("+ descricao valor")}"),
+                Bullet($"Ex.: {Code("+ salario 5000 fixo")}"),
+                Bullet($"Ex.: {Code("+ freelance 350")}")),
+            string.Join(
+                "\n",
+                "<b>Comandos úteis</b>",
+                Bullet($"{Code("/resumo")} — ver saldo do dia"),
+                Bullet($"{Code("/orcamento")} — acompanhar o limite do mês"),
+                Bullet($"{Code("/movimentos")} — ver os últimos lançamentos"),
+                Bullet($"{Code("/desfazer")} — remover o último lançamento")),
+            $"Dica: use {Code("fixo")} no final quando for algo recorrente.",
+            $"Se precisar de acesso ou consulta extra, você também pode usar {Code("/plano")}, {Code("/relatorio")} e {Code("/desvincular")}."));
     }
 
     private static FinanceMessageResult ObterMenuVinculo()
     {
         return FinanceMessageResult.OkHtml(BuildMessage(
-            "🤖 <b>FinanceBot</b>",
-            "Este chat ainda não está conectado à sua conta.",
-            string.Join(
-                "\n",
-                "1. Faça login na Web ou na API.",
-                "2. Gere um código de vínculo.",
-                $"3. Envie {Code("/vincular 123456")} aqui."),
-            "Depois disso, você poderá registrar gastos e receitas diretamente no Telegram."));
+            "🔒 <b>Como conectar este chat</b>",
+            "Este Telegram ainda não está ligado à sua conta do FinanceBot.",
+            BuildLinkInstructions(),
+            $"Importante: troque {Code("123456")} pelo código que apareceu para você.",
+            $"Depois disso, você já pode registrar por aqui com mensagens como {Code("cafe 8,50")} e {Code("+ freelance 350")}."));
     }
 
     private static bool TryParseLinkCommand(string comandoNormalizado, out string codigoVinculo)
@@ -549,14 +604,133 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
             .Trim();
     }
 
+    private static string BuildBudgetDailyAllowanceText(OrcamentoMensalDto orcamento)
+    {
+        if (!orcamento.PossuiOrcamentoDefinido)
+        {
+            return "Defina um limite na Web";
+        }
+
+        if (orcamento.Estourado || orcamento.Restante is null || orcamento.Restante <= 0m)
+        {
+            return "Sem folga diária";
+        }
+
+        if (orcamento.DiasRestantes <= 0)
+        {
+            return "Mês no fim";
+        }
+
+        var valorPorDia = decimal.Round(
+            orcamento.Restante.Value / orcamento.DiasRestantes,
+            2,
+            MidpointRounding.AwayFromZero);
+
+        return $"{FormatCurrency(valorPorDia)}/dia";
+    }
+
+    private static string BuildBudgetMonthComparisonText(OrcamentoMensalDto atual, OrcamentoMensalDto anterior)
+    {
+        var semBaseAnterior =
+            anterior.TotalGastos <= 0m &&
+            anterior.TotalReceitas <= 0m &&
+            !anterior.PossuiOrcamentoDefinido;
+
+        if (semBaseAnterior)
+        {
+            return "Sem base anterior";
+        }
+
+        var diferenca = atual.TotalGastos - anterior.TotalGastos;
+        if (diferenca == 0m)
+        {
+            return "Mesmo nível";
+        }
+
+        return diferenca > 0m
+            ? $"{FormatCurrency(diferenca)} acima"
+            : $"{FormatCurrency(Math.Abs(diferenca))} abaixo";
+    }
+
+    private static string FormatBudgetReference(int ano, int mes)
+    {
+        return $"{mes:D2}/{ano}";
+    }
+
+    private static string BuildBudgetMonthStatusLine(OrcamentoMensalDto orcamento)
+    {
+        if (!orcamento.PossuiOrcamentoDefinido)
+        {
+            var sugestao = orcamento.SugestaoLimiteEquilibrado.HasValue
+                ? $"Sem limite definido para {FormatBudgetReference(orcamento.Ano, orcamento.Mes)}. Sua sugestão equilibrada hoje é {FormatCurrency(orcamento.SugestaoLimiteEquilibrado.Value)}."
+                : $"Sem limite definido para {FormatBudgetReference(orcamento.Ano, orcamento.Mes)}.";
+
+            return sugestao;
+        }
+
+        if (orcamento.Estourado)
+        {
+            return $"No mês, o orçamento já passou do limite em {FormatCurrency(Math.Abs(orcamento.Restante ?? 0m))}.";
+        }
+
+        if (orcamento.EstouroProjetado)
+        {
+            return $"No mês, a projeção está acima do limite e deve fechar em {FormatCurrency(orcamento.ProjecaoFechamento)}.";
+        }
+
+        if (orcamento.DiasRestantes <= 0)
+        {
+            return $"No mês, o fechamento indica {FormatCurrency(orcamento.Restante ?? 0m)} de folga.";
+        }
+
+        return $"No mês, ainda restam {FormatCurrency(orcamento.Restante ?? 0m)} para os próximos {orcamento.DiasRestantes} dia(s).";
+    }
+
+    private static string BuildBudgetSuggestionGuidanceText(OrcamentoMensalDto orcamento)
+    {
+        if (!orcamento.SugestaoLimiteEquilibrado.HasValue)
+        {
+            return "Ainda não há base suficiente para gerar uma sugestão confiável.";
+        }
+
+        var baseHistorica = orcamento.MesesBaseSugestao > 0
+            ? $"a média dos últimos {orcamento.MesesBaseSugestao} mes(es) fechados"
+            : "a projeção do mês atual";
+
+        if (!orcamento.PossuiOrcamentoDefinido)
+        {
+            return $"Hoje a referência mais equilibrada é {FormatCurrency(orcamento.SugestaoLimiteEquilibrado.Value)}, usando {baseHistorica} como base.";
+        }
+
+        if (!orcamento.LimiteGastos.HasValue)
+        {
+            return $"A sugestão equilibrada do momento é {FormatCurrency(orcamento.SugestaoLimiteEquilibrado.Value)}.";
+        }
+
+        var diferenca = orcamento.LimiteGastos.Value - orcamento.SugestaoLimiteEquilibrado.Value;
+        if (Math.Abs(diferenca) < 0.01m)
+        {
+            return $"Seu limite está alinhado com a sugestão equilibrada calculada a partir de {baseHistorica}.";
+        }
+
+        return diferenca > 0m
+            ? $"Seu limite está {FormatCurrency(diferenca)} acima da sugestão equilibrada calculada a partir de {baseHistorica}."
+            : $"Seu limite está {FormatCurrency(Math.Abs(diferenca))} abaixo da sugestão equilibrada calculada a partir de {baseHistorica}.";
+    }
+
+    private static string FormatBudgetSuggestionValue(decimal? value)
+    {
+        return value.HasValue ? FormatCurrency(value.Value) : "Sem base";
+    }
+
     private static FinanceMessageResult FormatarResultadoVinculo(VinculoTelegramResult resultado)
     {
         var mensagem = BuildMessage(
-            resultado.Sucesso ? "✅ <b>Chat vinculado</b>" : "⚠️ <b>Não foi possível concluir o vínculo</b>",
+            resultado.Sucesso ? "✅ <b>Chat conectado</b>" : "⚠️ <b>Não foi possível conectar este chat</b>",
             Encode(resultado.Mensagem),
             resultado.Sucesso
-                ? $"Agora você já pode enviar {Code("gastei 18 no uber")} ou consultar {Code("/resumo")}."
-                : null);
+                ? $"A partir de agora, envie mensagens como {Code("cafe 8,50")} ou {Code("+ freelance 350")}. Para consultar, use {Code("/resumo")} ou {Code("/orcamento")}."
+                : $"Confira o código gerado na Web e tente novamente com algo como {Code("/vincular 123456")}.");
 
         return resultado.Sucesso
             ? FinanceMessageResult.OkHtml(mensagem)
@@ -577,6 +751,15 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
     private static string BuildMessage(params string?[] blocos)
     {
         return string.Join("\n\n", blocos.Where(bloco => !string.IsNullOrWhiteSpace(bloco)));
+    }
+
+    private static string BuildLinkInstructions()
+    {
+        return string.Join(
+            "\n",
+            "1. Entre na Web com seu login.",
+            "2. Abra a área do Telegram e gere um código de vínculo.",
+            $"3. Envie {Code("/vincular 123456")} neste chat.");
     }
 
     private static string BuildBulletList(params string[] itens)
@@ -609,5 +792,39 @@ public sealed class FinanceMessageProcessor : IFinanceMessageProcessor
         return string.IsNullOrWhiteSpace(categoria)
             ? string.Empty
             : $" ({Encode(categoria)})";
+    }
+
+    private static string FormatGastoProfile(bool ehFixo, bool ehEssencial)
+    {
+        var labels = new List<string>();
+
+        if (ehFixo)
+        {
+            labels.Add("Fixo");
+        }
+
+        if (ehEssencial)
+        {
+            labels.Add("Essencial");
+        }
+
+        return labels.Count > 0 ? string.Join(" • ", labels) : "Variável";
+    }
+
+    private static string FormatPerfilHtml(MovimentoDto movimento)
+    {
+        var labels = new List<string>();
+
+        if (movimento.EhFixo == true)
+        {
+            labels.Add(movimento.Tipo == "Receita" ? "Fixa" : "Fixo");
+        }
+
+        if (movimento.EhEssencial == true)
+        {
+            labels.Add("Essencial");
+        }
+
+        return labels.Count > 0 ? $" — {Encode(string.Join(" • ", labels))}" : string.Empty;
     }
 }

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using FinanceBot.Api.Tests.Infrastructure;
@@ -158,8 +159,51 @@ public sealed class ApiIntegrationTests
         Assert.True(result.Sucesso);
         Assert.True(result.UsaHtml);
         Assert.Contains("<b>FinanceBot</b>", result.Mensagem, StringComparison.Ordinal);
-        Assert.Contains("<code>resumo</code>", result.Mensagem, StringComparison.Ordinal);
-        Assert.Contains("<code>desvincular</code>", result.Mensagem, StringComparison.Ordinal);
+        Assert.Contains("Como registrar gastos", result.Mensagem, StringComparison.Ordinal);
+        Assert.Contains("<code>cafe 8,50</code>", result.Mensagem, StringComparison.Ordinal);
+        Assert.Contains("<code>/resumo</code>", result.Mensagem, StringComparison.Ordinal);
+        Assert.Contains("<code>/plano</code>", result.Mensagem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Telegram_help_menu_for_unlinked_chat_explains_link_step_by_step()
+    {
+        await using var app = await TestAppInstance.CreateAsync(_postgres);
+
+        await using var scope = app.Factory.Services.CreateAsyncScope();
+        var currentUser = scope.ServiceProvider.GetRequiredService<ICurrentUserContextAccessor>();
+        currentUser.SetTelegramChatId(998877);
+
+        var processor = scope.ServiceProvider.GetRequiredService<IFinanceMessageProcessor>();
+        var result = await processor.ProcessarMensagemAsync(new FinanceMessageRequest("ajuda", 998877));
+
+        Assert.True(result.Sucesso);
+        Assert.Contains("Como conectar este chat", result.Mensagem, StringComparison.Ordinal);
+        Assert.Contains("gere um código de vínculo", result.Mensagem, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("<code>/vincular 123456</code>", result.Mensagem, StringComparison.Ordinal);
+        Assert.Contains("<code>cafe 8,50</code>", result.Mensagem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Telegram_link_command_returns_clear_next_step_for_customer()
+    {
+        await using var app = await TestAppInstance.CreateAsync(_postgres);
+
+        var auth = await app.RegisterAsync("telegram-link-copy");
+        var code = await app.GenerateLinkCodeAsync(auth.Token);
+
+        await using var scope = app.Factory.Services.CreateAsyncScope();
+        var processor = scope.ServiceProvider.GetRequiredService<IFinanceMessageProcessor>();
+        var result = await processor.ProcessarMensagemAsync(new FinanceMessageRequest($"/vincular {code.Codigo}", 998877));
+        var linkedUser = await scope.ServiceProvider.GetRequiredService<IIdentityService>().ObterUsuarioPorTelegramAsync(998877);
+
+        Assert.True(result.Sucesso);
+        Assert.True(result.UsaHtml);
+        Assert.Contains("Chat conectado", result.Mensagem, StringComparison.Ordinal);
+        Assert.Contains("<code>cafe 8,50</code>", result.Mensagem, StringComparison.Ordinal);
+        Assert.Contains("<code>/orcamento</code>", result.Mensagem, StringComparison.Ordinal);
+        Assert.NotNull(linkedUser);
+        Assert.Equal(auth.UsuarioId, linkedUser!.UsuarioId);
     }
 
     [Fact]
@@ -248,7 +292,9 @@ public sealed class ApiIntegrationTests
             95m,
             new DateOnly(2026, 05, 01),
             "Compras",
-            "Reposicao da despensa");
+            "Reposicao da despensa",
+            true,
+            true);
         var updatedReceita = await app.UpdateReceitaAsync(
             auth.Token,
             receita.Id,
@@ -262,6 +308,8 @@ public sealed class ApiIntegrationTests
         Assert.Equal(95m, updatedGasto.Valor);
         Assert.Equal("Compras", updatedGasto.Categoria);
         Assert.Equal("Reposicao da despensa", updatedGasto.Observacao);
+        Assert.True(updatedGasto.EhFixo);
+        Assert.True(updatedGasto.EhEssencial);
         Assert.Equal("Web", updatedGasto.Origem);
         Assert.Equal(new DateOnly(2026, 05, 01), DateOnly.FromDateTime(updatedGasto.Data));
         Assert.Equal("Freelance maio", updatedReceita.Descricao);
@@ -303,7 +351,7 @@ public sealed class ApiIntegrationTests
         var telegramOnly = await app.ListMovimentosAsync(auth.Token, "/api/movimentos?origem=Telegram&limite=20");
 
         Assert.Contains(todos, item => item.Id == gastoWeb.Id && item.Origem == "Web" && item.Observacao == "Compra mensal");
-        Assert.Contains(telegramOnly, item => item.Origem == "Telegram" && item.Descricao == "uber");
+        Assert.Contains(telegramOnly, item => item.Origem == "Telegram" && item.Descricao == "uber" && item.EhEssencial == true);
         Assert.DoesNotContain(telegramOnly, item => item.Origem == "Web");
     }
 
@@ -326,6 +374,33 @@ public sealed class ApiIntegrationTests
         Assert.True(result.UsaHtml);
         Assert.Contains("Mercado &lt;vip&gt;", result.Mensagem, StringComparison.Ordinal);
         Assert.DoesNotContain("<vip>", result.Mensagem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Telegram_gasto_supports_fixed_suffix_and_exposes_financial_signals()
+    {
+        await using var app = await TestAppInstance.CreateAsync(_postgres);
+
+        var auth = await app.RegisterAsync("telegram-fixed");
+
+        await using var scope = app.Factory.Services.CreateAsyncScope();
+        var currentUser = scope.ServiceProvider.GetRequiredService<ICurrentUserContextAccessor>();
+        currentUser.SetTelegramChatId(998877);
+        currentUser.SetAuthenticatedUser(auth.UsuarioId, auth.Email);
+
+        var processor = scope.ServiceProvider.GetRequiredService<IFinanceMessageProcessor>();
+        var result = await processor.ProcessarMensagemAsync(new FinanceMessageRequest("internet 120 fixo", 998877));
+
+        Assert.True(result.Sucesso);
+        Assert.Contains("Perfil", result.Mensagem, StringComparison.Ordinal);
+
+        var movimentos = await app.ListMovimentosAsync(auth.Token, "/api/movimentos?limite=20");
+        Assert.Contains(movimentos, item =>
+            item.Tipo == "Gasto" &&
+            item.Descricao == "internet" &&
+            item.Categoria == "Moradia" &&
+            item.EhFixo == true &&
+            item.EhEssencial == true);
     }
 
     [Fact]
@@ -379,8 +454,217 @@ public sealed class ApiIntegrationTests
         var movimentos = await app.GetMovimentosAsync(auth.Token);
 
         Assert.Equal("Alimentacao", gasto.Categoria);
+        Assert.False(gasto.EhFixo);
+        Assert.False(gasto.EhEssencial);
         Assert.Contains(gastos, item => item.Descricao == "CAFÉ da manhã" && item.Categoria == "Alimentacao");
-        Assert.Contains(movimentos, item => item.Descricao == "CAFÉ da manhã" && item.Categoria == "Alimentacao");
+        Assert.Contains(movimentos, item =>
+            item.Descricao == "CAFÉ da manhã" &&
+            item.Categoria == "Alimentacao" &&
+            item.EhFixo == false &&
+            item.EhEssencial == false);
+    }
+
+    [Fact]
+    public async Task Gasto_creation_marks_housing_expenses_as_fixed_and_essential()
+    {
+        await using var app = await TestAppInstance.CreateAsync(_postgres);
+
+        var auth = await app.RegisterAsync("gasto-profile");
+        var gasto = await app.CreateGastoAsync(auth.Token, "Aluguel centro", 1450m);
+
+        Assert.Equal("Moradia", gasto.Categoria);
+        Assert.True(gasto.EhFixo);
+        Assert.True(gasto.EhEssencial);
+    }
+
+    [Fact]
+    public async Task Monthly_budget_can_be_saved_and_summarizes_current_month_spending()
+    {
+        await using var app = await TestAppInstance.CreateAsync(_postgres);
+
+        var auth = await app.RegisterAsync("budget");
+        await app.CreateReceitaAsync(auth.Token, "Salario", 4000m, true);
+        await app.CreateGastoAsync(auth.Token, "Aluguel centro", 1200m);
+        await app.CreateGastoAsync(auth.Token, "Cinema centro", 50m);
+
+        var budget = await app.UpdateMonthlyBudgetAsync(auth.Token, 2000m);
+
+        Assert.Equal(DateTime.UtcNow.Year, budget.Ano);
+        Assert.Equal(DateTime.UtcNow.Month, budget.Mes);
+        Assert.True(budget.PossuiOrcamentoDefinido);
+        Assert.Equal(2000m, budget.LimiteGastos);
+        Assert.Equal(1250m, budget.TotalGastos);
+        Assert.Equal(4000m, budget.TotalReceitas);
+        Assert.Equal(1200m, budget.GastoFixo);
+        Assert.Equal(1200m, budget.GastoEssencial);
+        Assert.Equal(50m, budget.GastoNaoEssencial);
+        Assert.Equal(750m, budget.Restante);
+        Assert.False(budget.Estourado);
+    }
+
+    [Fact]
+    public async Task Monthly_budget_is_isolated_per_user()
+    {
+        await using var app = await TestAppInstance.CreateAsync(_postgres);
+
+        var firstUser = await app.RegisterAsync("budget-alice");
+        var secondUser = await app.RegisterAsync("budget-bob");
+
+        await app.UpdateMonthlyBudgetAsync(firstUser.Token, 1800m);
+        await app.UpdateMonthlyBudgetAsync(secondUser.Token, 900m);
+
+        var firstBudget = await app.GetMonthlyBudgetAsync(firstUser.Token);
+        var secondBudget = await app.GetMonthlyBudgetAsync(secondUser.Token);
+
+        Assert.Equal(1800m, firstBudget.LimiteGastos);
+        Assert.Equal(900m, secondBudget.LimiteGastos);
+    }
+
+    [Fact]
+    public async Task Monthly_budget_can_be_queried_for_a_specific_month()
+    {
+        await using var app = await TestAppInstance.CreateAsync(_postgres);
+
+        var auth = await app.RegisterAsync("budget-history");
+        var previousReference = new DateOnly(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1).AddMonths(-1);
+
+        var previousExpense = await app.CreateGastoAsync(auth.Token, "Mercado anterior", 150m);
+        await app.UpdateGastoAsync(
+            auth.Token,
+            previousExpense.Id,
+            previousExpense.Descricao,
+            previousExpense.Valor,
+            previousReference,
+            previousExpense.Categoria,
+            previousExpense.Observacao,
+            previousExpense.EhFixo,
+            previousExpense.EhEssencial);
+
+        await app.UpdateMonthlyBudgetAsync(auth.Token, 700m, previousReference.Year, previousReference.Month);
+        await app.UpdateMonthlyBudgetAsync(auth.Token, 1200m);
+
+        var previousBudget = await app.GetMonthlyBudgetAsync(auth.Token, previousReference.Year, previousReference.Month);
+
+        Assert.Equal(previousReference.Year, previousBudget.Ano);
+        Assert.Equal(previousReference.Month, previousBudget.Mes);
+        Assert.Equal(700m, previousBudget.LimiteGastos);
+        Assert.Equal(150m, previousBudget.TotalGastos);
+    }
+
+    [Fact]
+    public async Task Monthly_budget_returns_shared_limit_suggestions_from_previous_months()
+    {
+        await using var app = await TestAppInstance.CreateAsync(_postgres);
+
+        var auth = await app.RegisterAsync("budget-suggestions");
+        var previousReference = new DateOnly(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1).AddMonths(-1);
+
+        await app.CreateReceitaAsync(auth.Token, "Salario atual", 4500m, true);
+        var previousIncome = await app.CreateReceitaAsync(auth.Token, "Salario anterior", 4000m, true);
+        var previousRent = await app.CreateGastoAsync(auth.Token, "Aluguel centro", 600m);
+        var previousLeisure = await app.CreateGastoAsync(auth.Token, "Cinema bairro", 200m);
+
+        await app.UpdateReceitaAsync(
+            auth.Token,
+            previousIncome.Id,
+            previousIncome.Descricao,
+            previousIncome.Valor,
+            previousReference,
+            previousIncome.EhFixo,
+            previousIncome.Observacao);
+        await app.UpdateGastoAsync(
+            auth.Token,
+            previousRent.Id,
+            previousRent.Descricao,
+            previousRent.Valor,
+            previousReference,
+            previousRent.Categoria,
+            previousRent.Observacao,
+            previousRent.EhFixo,
+            previousRent.EhEssencial);
+        await app.UpdateGastoAsync(
+            auth.Token,
+            previousLeisure.Id,
+            previousLeisure.Descricao,
+            previousLeisure.Valor,
+            previousReference,
+            previousLeisure.Categoria,
+            previousLeisure.Observacao,
+            previousLeisure.EhFixo,
+            previousLeisure.EhEssencial);
+
+        var budget = await app.GetMonthlyBudgetAsync(auth.Token);
+
+        Assert.Equal(1, budget.MesesBaseSugestao);
+        Assert.Equal(630m, budget.SugestaoLimiteSeguro);
+        Assert.Equal(700m, budget.SugestaoLimiteEquilibrado);
+        Assert.Equal(760m, budget.SugestaoLimiteFlexivel);
+    }
+
+    [Fact]
+    public async Task Telegram_budget_command_shows_daily_pace_and_previous_month_comparison()
+    {
+        await using var app = await TestAppInstance.CreateAsync(_postgres);
+
+        var auth = await app.RegisterAsync("telegram-budget");
+        var previousReference = new DateOnly(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1).AddMonths(-1);
+        var previousLabel = $"{previousReference.Month:D2}/{previousReference.Year}";
+        var previousExpense = await app.CreateGastoAsync(auth.Token, "Mercado anterior", 120m);
+        await app.UpdateGastoAsync(
+            auth.Token,
+            previousExpense.Id,
+            previousExpense.Descricao,
+            previousExpense.Valor,
+            previousReference,
+            previousExpense.Categoria,
+            previousExpense.Observacao,
+            previousExpense.EhFixo,
+            previousExpense.EhEssencial);
+        await app.UpdateMonthlyBudgetAsync(auth.Token, 700m, previousReference.Year, previousReference.Month);
+        await app.CreateGastoAsync(auth.Token, "Mercado bairro", 200m);
+        await app.UpdateMonthlyBudgetAsync(auth.Token, 800m);
+
+        await using var scope = app.Factory.Services.CreateAsyncScope();
+        var currentUser = scope.ServiceProvider.GetRequiredService<ICurrentUserContextAccessor>();
+        currentUser.SetTelegramChatId(998877);
+        currentUser.SetAuthenticatedUser(auth.UsuarioId, auth.Email);
+
+        var processor = scope.ServiceProvider.GetRequiredService<IFinanceMessageProcessor>();
+        var result = await processor.ProcessarMensagemAsync(new FinanceMessageRequest("orcamento", 998877));
+        var message = WebUtility.HtmlDecode(result.Mensagem);
+
+        Assert.True(result.Sucesso);
+        Assert.Contains("Orçamento do mês", message, StringComparison.Ordinal);
+        Assert.Contains("Restante", message, StringComparison.Ordinal);
+        Assert.Contains("Projeção", message, StringComparison.Ordinal);
+        Assert.Contains("Por dia até fechar", message, StringComparison.Ordinal);
+        Assert.Contains($"Vs {previousLabel}", message, StringComparison.Ordinal);
+        Assert.Contains("Sugestão equilibrada", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Telegram_summary_includes_month_budget_context()
+    {
+        await using var app = await TestAppInstance.CreateAsync(_postgres);
+
+        var auth = await app.RegisterAsync("telegram-summary-budget");
+        await app.CreateReceitaAsync(auth.Token, "Salario", 4000m, true);
+        await app.CreateGastoAsync(auth.Token, "Mercado", 180m);
+        await app.UpdateMonthlyBudgetAsync(auth.Token, 900m);
+
+        await using var scope = app.Factory.Services.CreateAsyncScope();
+        var currentUser = scope.ServiceProvider.GetRequiredService<ICurrentUserContextAccessor>();
+        currentUser.SetTelegramChatId(445566);
+        currentUser.SetAuthenticatedUser(auth.UsuarioId, auth.Email);
+
+        var processor = scope.ServiceProvider.GetRequiredService<IFinanceMessageProcessor>();
+        var result = await processor.ProcessarMensagemAsync(new FinanceMessageRequest("resumo", 445566));
+        var message = WebUtility.HtmlDecode(result.Mensagem);
+
+        Assert.True(result.Sucesso);
+        Assert.Contains("Resumo do dia", message, StringComparison.Ordinal);
+        Assert.Contains("No mês", message, StringComparison.Ordinal);
+        Assert.Contains("restam", message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -501,11 +785,24 @@ public sealed class ApiIntegrationTests
             return code!;
         }
 
-        public async Task<GastoResponse> CreateGastoAsync(string token, string descricao, decimal valor, string? observacao = null)
+        public async Task<GastoResponse> CreateGastoAsync(
+            string token,
+            string descricao,
+            decimal valor,
+            string? observacao = null,
+            bool? ehFixo = null,
+            bool? ehEssencial = null)
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, "/api/gastos")
             {
-                Content = JsonContent.Create(new { Descricao = descricao, Valor = valor, Observacao = observacao })
+                Content = JsonContent.Create(new
+                {
+                    Descricao = descricao,
+                    Valor = valor,
+                    Observacao = observacao,
+                    EhFixo = ehFixo,
+                    EhEssencial = ehEssencial
+                })
             };
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
@@ -623,6 +920,65 @@ public sealed class ApiIntegrationTests
             return report!;
         }
 
+        public async Task<OrcamentoMensalResponse> GetMonthlyBudgetAsync(string token, int? ano = null, int? mes = null)
+        {
+            var path = "/api/orcamentos/mensal";
+            if (ano.HasValue || mes.HasValue)
+            {
+                var parameters = new List<string>();
+                if (ano.HasValue)
+                {
+                    parameters.Add($"ano={ano.Value}");
+                }
+
+                if (mes.HasValue)
+                {
+                    parameters.Add($"mes={mes.Value}");
+                }
+
+                path = $"{path}?{string.Join("&", parameters)}";
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, path);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            using var response = await Client.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                throw new HttpRequestException($"Monthly budget request failed with {(int)response.StatusCode}: {body}");
+            }
+
+            var budget = await response.Content.ReadFromJsonAsync<OrcamentoMensalResponse>();
+            Assert.NotNull(budget);
+            return budget!;
+        }
+
+        public async Task<OrcamentoMensalResponse> UpdateMonthlyBudgetAsync(string token, decimal limiteGastos, int? ano = null, int? mes = null)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Put, "/api/orcamentos/mensal")
+            {
+                Content = JsonContent.Create(new
+                {
+                    LimiteGastos = limiteGastos,
+                    Ano = ano,
+                    Mes = mes
+                })
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            using var response = await Client.SendAsync(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                throw new HttpRequestException($"Monthly budget update failed with {(int)response.StatusCode}: {body}");
+            }
+
+            var budget = await response.Content.ReadFromJsonAsync<OrcamentoMensalResponse>();
+            Assert.NotNull(budget);
+            return budget!;
+        }
+
         public async Task<DesvinculoTelegramResponse> UnlinkAsync(string token)
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, "/auth/desvincular");
@@ -647,11 +1003,22 @@ public sealed class ApiIntegrationTests
             decimal valor,
             DateOnly data,
             string categoria,
-            string? observacao = null)
+            string? observacao = null,
+            bool? ehFixo = null,
+            bool? ehEssencial = null)
         {
             using var request = new HttpRequestMessage(HttpMethod.Put, $"/api/gastos/{gastoId}")
             {
-                Content = JsonContent.Create(new { Descricao = descricao, Valor = valor, Data = data, Categoria = categoria, Observacao = observacao })
+                Content = JsonContent.Create(new
+                {
+                    Descricao = descricao,
+                    Valor = valor,
+                    Data = data,
+                    Categoria = categoria,
+                    Observacao = observacao,
+                    EhFixo = ehFixo,
+                    EhEssencial = ehEssencial
+                })
             };
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
@@ -772,9 +1139,26 @@ public sealed class ApiIntegrationTests
         DateTime? SolicitadoEmUtc,
         bool UpgradePendente);
 
-    private sealed record MovimentoResponse(Guid Id, string Tipo, string Descricao, string? Categoria, string Origem, string? Observacao);
+    private sealed record MovimentoResponse(
+        Guid Id,
+        string Tipo,
+        string Descricao,
+        string? Categoria,
+        bool? EhFixo,
+        bool? EhEssencial,
+        string Origem,
+        string? Observacao);
 
-    private sealed record GastoResponse(Guid Id, string Descricao, decimal Valor, DateTime Data, string Categoria, string Origem, string? Observacao);
+    private sealed record GastoResponse(
+        Guid Id,
+        string Descricao,
+        decimal Valor,
+        DateTime Data,
+        string Categoria,
+        bool EhFixo,
+        bool EhEssencial,
+        string Origem,
+        string? Observacao);
 
     private sealed record ReceitaResponse(Guid Id, string Descricao, decimal Valor, DateTime Data, bool EhFixo, string Origem, string? Observacao);
 
@@ -786,6 +1170,30 @@ public sealed class ApiIntegrationTests
         decimal Saldo,
         int TotalLancamentos,
         List<CategoriaResumoResponse> TopCategoriasGasto);
+
+    private sealed record OrcamentoMensalResponse(
+        int Ano,
+        int Mes,
+        decimal? LimiteGastos,
+        decimal TotalGastos,
+        decimal TotalReceitas,
+        decimal GastoFixo,
+        decimal GastoEssencial,
+        decimal GastoNaoEssencial,
+        decimal? Restante,
+        decimal? PercentualConsumido,
+        decimal ProjecaoFechamento,
+        decimal? DiferencaProjetada,
+        int DiasNoMes,
+        int DiasDecorridos,
+        int DiasRestantes,
+        bool PossuiOrcamentoDefinido,
+        bool Estourado,
+        bool EstouroProjetado,
+        decimal? SugestaoLimiteSeguro,
+        decimal? SugestaoLimiteEquilibrado,
+        decimal? SugestaoLimiteFlexivel,
+        int MesesBaseSugestao);
 
     private sealed record CategoriaResumoResponse(string Categoria, decimal TotalGasto, int Quantidade);
 

@@ -1,0 +1,25 @@
+namespace FinanceBot.Application.Contracts;
+
+public sealed record OrcamentoMensalDto(
+    int Ano,
+    int Mes,
+    decimal? LimiteGastos,
+    decimal TotalGastos,
+    decimal TotalReceitas,
+    decimal GastoFixo,
+    decimal GastoEssencial,
+    decimal GastoNaoEssencial,
+    decimal? Restante,
+    decimal? PercentualConsumido,
+    decimal ProjecaoFechamento,
+    decimal? DiferencaProjetada,
+    int DiasNoMes,
+    int DiasDecorridos,
+    int DiasRestantes,
+    bool PossuiOrcamentoDefinido,
+    bool Estourado,
+    bool EstouroProjetado,
+    decimal? SugestaoLimiteSeguro,
+    decimal? SugestaoLimiteEquilibrado,
+    decimal? SugestaoLimiteFlexivel,
+    int MesesBaseSugestao);

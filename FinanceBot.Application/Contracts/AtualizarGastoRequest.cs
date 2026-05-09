@@ -5,4 +5,6 @@ public sealed record AtualizarGastoRequest(
     decimal Valor,
     DateOnly Data,
     string Categoria,
-    string? Observacao = null);
+    string? Observacao = null,
+    bool? EhFixo = null,
+    bool? EhEssencial = null);

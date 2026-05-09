@@ -12,10 +12,12 @@ public sealed class FinanceOperationsService : IFinanceOperationsService
     private readonly ICurrentUserContext _currentUserContext;
     private readonly IAccessPolicyService _accessPolicyService;
     private readonly IGastoCategorizationService _gastoCategorizationService;
+    private readonly IOrcamentoMensalRepository _orcamentosMensais;
 
     public FinanceOperationsService(
         ITransacaoRepository transacoes,
         IReceitaRepository receitas,
+        IOrcamentoMensalRepository orcamentosMensais,
         IFinanceUnitOfWork unitOfWork,
         ICurrentUserContext currentUserContext,
         IAccessPolicyService accessPolicyService,
@@ -23,6 +25,7 @@ public sealed class FinanceOperationsService : IFinanceOperationsService
     {
         _transacoes = transacoes;
         _receitas = receitas;
+        _orcamentosMensais = orcamentosMensais;
         _unitOfWork = unitOfWork;
         _currentUserContext = currentUserContext;
         _accessPolicyService = accessPolicyService;
@@ -33,6 +36,7 @@ public sealed class FinanceOperationsService : IFinanceOperationsService
     {
         var usuarioId = GetCurrentUserId();
         await _accessPolicyService.EnsureCanRegisterLancamentoAsync(cancellationToken);
+        var classification = _gastoCategorizationService.Classify(request.Descricao);
         var transacao = new Transacao
         {
             Id = Guid.NewGuid(),
@@ -40,7 +44,9 @@ public sealed class FinanceOperationsService : IFinanceOperationsService
             Descricao = request.Descricao.Trim(),
             Valor = request.Valor,
             Data = DateTime.UtcNow,
-            Categoria = _gastoCategorizationService.Categorize(request.Descricao),
+            Categoria = classification.Categoria,
+            EhFixo = request.EhFixo ?? classification.EhFixo,
+            EhEssencial = request.EhEssencial ?? classification.EhEssencial,
             Observacao = NormalizeObservacao(request.Observacao),
             Origem = ResolveOrigem()
         };
@@ -85,12 +91,15 @@ public sealed class FinanceOperationsService : IFinanceOperationsService
             return null;
         }
 
+        var classification = _gastoCategorizationService.Classify(request.Descricao);
         gasto.Descricao = request.Descricao.Trim();
         gasto.Valor = request.Valor;
         gasto.Data = CombineDateWithExistingTime(gasto.Data, request.Data);
         gasto.Categoria = string.IsNullOrWhiteSpace(request.Categoria)
-            ? _gastoCategorizationService.Categorize(request.Descricao)
+            ? classification.Categoria
             : request.Categoria.Trim();
+        gasto.EhFixo = request.EhFixo ?? gasto.EhFixo;
+        gasto.EhEssencial = request.EhEssencial ?? gasto.EhEssencial;
         gasto.Observacao = NormalizeObservacao(request.Observacao);
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
@@ -249,6 +258,58 @@ public sealed class FinanceOperationsService : IFinanceOperationsService
             topCategorias);
     }
 
+    public async Task<OrcamentoMensalDto> ObterOrcamentoMensalAsync(
+        int? ano = null,
+        int? mes = null,
+        CancellationToken cancellationToken = default)
+    {
+        _ = GetCurrentUserId();
+        var (year, month, startUtc, endExclusiveUtc) = ResolveMonthlyPeriod(ano, mes);
+        var orcamento = await _orcamentosMensais.GetByPeriodoAsync(year, month, cancellationToken);
+        var gastos = await _transacoes.ListInPeriodAsync(startUtc, endExclusiveUtc, cancellationToken);
+        var receitas = await _receitas.ListInPeriodAsync(startUtc, endExclusiveUtc, cancellationToken);
+        var historico = await LoadBudgetHistoryAsync(year, month, cancellationToken);
+
+        return BuildBudgetDto(year, month, orcamento, gastos, receitas, historico);
+    }
+
+    public async Task<OrcamentoMensalDto> AtualizarOrcamentoMensalAsync(
+        AtualizarOrcamentoMensalRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var usuarioId = GetCurrentUserId();
+        var (year, month, startUtc, endExclusiveUtc) = ResolveMonthlyPeriod(request.Ano, request.Mes);
+        var orcamento = await _orcamentosMensais.GetByPeriodoAsync(year, month, cancellationToken);
+
+        if (orcamento is null)
+        {
+            orcamento = new OrcamentoMensal
+            {
+                Id = Guid.NewGuid(),
+                UsuarioId = usuarioId,
+                Ano = year,
+                Mes = month,
+                LimiteGastos = request.LimiteGastos,
+                AtualizadoEmUtc = DateTime.UtcNow
+            };
+
+            await _orcamentosMensais.AddAsync(orcamento, cancellationToken);
+        }
+        else
+        {
+            orcamento.LimiteGastos = request.LimiteGastos;
+            orcamento.AtualizadoEmUtc = DateTime.UtcNow;
+        }
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        var gastos = await _transacoes.ListInPeriodAsync(startUtc, endExclusiveUtc, cancellationToken);
+        var receitas = await _receitas.ListInPeriodAsync(startUtc, endExclusiveUtc, cancellationToken);
+        var historico = await LoadBudgetHistoryAsync(year, month, cancellationToken);
+
+        return BuildBudgetDto(year, month, orcamento, gastos, receitas, historico);
+    }
+
     public async Task<IReadOnlyList<MovimentoDto>> ListarUltimosMovimentosAsync(int limite = 5, CancellationToken cancellationToken = default)
     {
         _ = GetCurrentUserId();
@@ -304,6 +365,8 @@ public sealed class FinanceOperationsService : IFinanceOperationsService
             transacao.Valor,
             transacao.Data,
             transacao.Categoria ?? "Outros",
+            transacao.EhFixo,
+            transacao.EhEssencial,
             transacao.Origem.ToString(),
             transacao.Observacao);
 
@@ -325,7 +388,8 @@ public sealed class FinanceOperationsService : IFinanceOperationsService
             transacao.Valor,
             transacao.Data,
             transacao.Categoria ?? "Outros",
-            null,
+            transacao.EhFixo,
+            transacao.EhEssencial,
             transacao.Origem.ToString(),
             transacao.Observacao);
 
@@ -338,8 +402,163 @@ public sealed class FinanceOperationsService : IFinanceOperationsService
             receita.Data,
             null,
             receita.EhFixo,
+            null,
             receita.Origem.ToString(),
             receita.Observacao);
+
+    private static OrcamentoMensalDto BuildBudgetDto(
+        int ano,
+        int mes,
+        OrcamentoMensal? orcamento,
+        IReadOnlyList<Transacao> gastos,
+        IReadOnlyList<Receita> receitas,
+        IReadOnlyList<BudgetHistorySnapshot> historico)
+    {
+        var totalGastos = gastos.Sum(item => item.Valor);
+        var totalReceitas = receitas.Sum(item => item.Valor);
+        var gastoFixo = gastos.Where(item => item.EhFixo).Sum(item => item.Valor);
+        var gastoEssencial = gastos.Where(item => item.EhEssencial).Sum(item => item.Valor);
+        var gastoNaoEssencial = totalGastos - gastoEssencial;
+        var limite = orcamento?.LimiteGastos;
+        var diasNoMes = DateTime.DaysInMonth(ano, mes);
+        var hojeUtc = DateTime.UtcNow.Date;
+        var competenciaAtual = new DateTime(ano, mes, 1, 0, 0, 0, DateTimeKind.Utc);
+        var mesAtual = new DateTime(hojeUtc.Year, hojeUtc.Month, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        int diasDecorridos;
+        int diasRestantes;
+        decimal projecaoFechamento;
+
+        if (competenciaAtual == mesAtual)
+        {
+            diasDecorridos = Math.Min(hojeUtc.Day, diasNoMes);
+            diasRestantes = Math.Max(diasNoMes - diasDecorridos, 0);
+            projecaoFechamento = diasDecorridos > 0
+                ? decimal.Round((totalGastos / diasDecorridos) * diasNoMes, 2, MidpointRounding.AwayFromZero)
+                : 0m;
+        }
+        else if (competenciaAtual < mesAtual)
+        {
+            diasDecorridos = diasNoMes;
+            diasRestantes = 0;
+            projecaoFechamento = totalGastos;
+        }
+        else
+        {
+            diasDecorridos = 0;
+            diasRestantes = diasNoMes;
+            projecaoFechamento = 0m;
+        }
+
+        decimal? restante = limite.HasValue ? limite.Value - totalGastos : null;
+        decimal? percentualConsumido = limite.HasValue && limite.Value > 0 ? totalGastos / limite.Value : null;
+        decimal? diferencaProjetada = limite.HasValue ? limite.Value - projecaoFechamento : null;
+        var estourado = limite.HasValue && totalGastos > limite.Value;
+        var estouroProjetado = limite.HasValue && projecaoFechamento > limite.Value;
+        var sugestoes = BuildBudgetSuggestions(
+            new BudgetHistorySnapshot(totalGastos, totalReceitas, gastoFixo, gastoEssencial, gastoNaoEssencial, orcamento is not null),
+            historico);
+
+        return new OrcamentoMensalDto(
+            ano,
+            mes,
+            limite,
+            totalGastos,
+            totalReceitas,
+            gastoFixo,
+            gastoEssencial,
+            gastoNaoEssencial,
+            restante,
+            percentualConsumido,
+            projecaoFechamento,
+            diferencaProjetada,
+            diasNoMes,
+            diasDecorridos,
+            diasRestantes,
+            orcamento is not null,
+            estourado,
+            estouroProjetado,
+            sugestoes.Seguro,
+            sugestoes.Equilibrado,
+            sugestoes.Flexivel,
+            sugestoes.MesesBase);
+    }
+
+    private async Task<IReadOnlyList<BudgetHistorySnapshot>> LoadBudgetHistoryAsync(
+        int ano,
+        int mes,
+        CancellationToken cancellationToken)
+    {
+        var referencia = new DateTime(ano, mes, 1, 0, 0, 0, DateTimeKind.Utc);
+        var historico = new List<BudgetHistorySnapshot>(3);
+
+        for (var offset = 1; offset <= 3; offset++)
+        {
+            var periodo = referencia.AddMonths(-offset);
+            var (historyYear, historyMonth, startUtc, endExclusiveUtc) = ResolveMonthlyPeriod(periodo.Year, periodo.Month);
+            var orcamento = await _orcamentosMensais.GetByPeriodoAsync(historyYear, historyMonth, cancellationToken);
+            var gastos = await _transacoes.ListInPeriodAsync(startUtc, endExclusiveUtc, cancellationToken);
+            var receitas = await _receitas.ListInPeriodAsync(startUtc, endExclusiveUtc, cancellationToken);
+
+            historico.Add(new BudgetHistorySnapshot(
+                gastos.Sum(item => item.Valor),
+                receitas.Sum(item => item.Valor),
+                gastos.Where(item => item.EhFixo).Sum(item => item.Valor),
+                gastos.Where(item => item.EhEssencial).Sum(item => item.Valor),
+                gastos.Where(item => !item.EhEssencial).Sum(item => item.Valor),
+                orcamento is not null));
+        }
+
+        return historico;
+    }
+
+    private static BudgetSuggestions BuildBudgetSuggestions(
+        BudgetHistorySnapshot atual,
+        IReadOnlyList<BudgetHistorySnapshot> historico)
+    {
+        var baseHistorica = historico
+            .Where(item =>
+                item.TotalGastos > 0m ||
+                item.TotalReceitas > 0m ||
+                item.GastoFixo > 0m ||
+                item.GastoEssencial > 0m ||
+                item.GastoNaoEssencial > 0m ||
+                item.PossuiOrcamentoDefinido)
+            .ToList();
+
+        if (baseHistorica.Count == 0)
+        {
+            baseHistorica.Add(atual);
+        }
+
+        var mediaFixo = baseHistorica.Average(item => item.GastoFixo);
+        var mediaEssencial = baseHistorica.Average(item => item.GastoEssencial);
+        var mediaNaoEssencial = baseHistorica.Average(item => item.GastoNaoEssencial);
+        var receitasPositivas = baseHistorica.Where(item => item.TotalReceitas > 0m).Select(item => item.TotalReceitas).ToList();
+        var mediaReceitas = receitasPositivas.Count > 0 ? receitasPositivas.Average() : 0m;
+        var baseComprometida = Math.Max(mediaFixo, mediaEssencial);
+        decimal? travaSegura = mediaReceitas > 0m ? mediaReceitas * 0.8m : null;
+        decimal? travaFlexivel = mediaReceitas > 0m ? mediaReceitas * 0.85m : null;
+
+        return new BudgetSuggestions(
+            ApplyBudgetCap(baseComprometida * 1.05m, baseComprometida, travaSegura),
+            ApplyBudgetCap(baseComprometida + (mediaNaoEssencial * 0.5m), baseComprometida, travaSegura),
+            ApplyBudgetCap(baseComprometida + (mediaNaoEssencial * 0.8m), baseComprometida, travaFlexivel),
+            historico.Count(item =>
+                item.TotalGastos > 0m ||
+                item.TotalReceitas > 0m ||
+                item.GastoFixo > 0m ||
+                item.GastoEssencial > 0m ||
+                item.GastoNaoEssencial > 0m ||
+                item.PossuiOrcamentoDefinido));
+    }
+
+    private static decimal ApplyBudgetCap(decimal alvo, decimal piso, decimal? trava)
+    {
+        var normalizado = decimal.Max(alvo, piso);
+        var comTrava = trava.HasValue ? decimal.Min(normalizado, trava.Value) : normalizado;
+        return decimal.Round(decimal.Max(comTrava, piso), 2, MidpointRounding.AwayFromZero);
+    }
 
     private static (DateTime? StartUtc, DateTime? EndExclusiveUtc) BuildPeriodo(DateOnly? inicio, DateOnly? fim)
     {
@@ -411,6 +630,29 @@ public sealed class FinanceOperationsService : IFinanceOperationsService
     {
         return string.IsNullOrWhiteSpace(observacao) ? null : observacao.Trim();
     }
+
+    private static (int Ano, int Mes, DateTime StartUtc, DateTime EndExclusiveUtc) ResolveMonthlyPeriod(int? ano, int? mes)
+    {
+        var now = DateTime.UtcNow;
+        var year = ano ?? now.Year;
+        var month = mes ?? now.Month;
+        var startUtc = new DateTime(year, month, 1, 0, 0, 0, DateTimeKind.Utc);
+        return (year, month, startUtc, startUtc.AddMonths(1));
+    }
+
+    private sealed record BudgetHistorySnapshot(
+        decimal TotalGastos,
+        decimal TotalReceitas,
+        decimal GastoFixo,
+        decimal GastoEssencial,
+        decimal GastoNaoEssencial,
+        bool PossuiOrcamentoDefinido);
+
+    private sealed record BudgetSuggestions(
+        decimal Seguro,
+        decimal Equilibrado,
+        decimal Flexivel,
+        int MesesBase);
 
     private OrigemLancamento ResolveOrigem()
     {

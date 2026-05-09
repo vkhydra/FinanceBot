@@ -24,6 +24,7 @@ public class AppDbContext : DbContext
     public DbSet<AssinaturaUsuario> AssinaturasUsuario => Set<AssinaturaUsuario>();
     public DbSet<Transacao> Transacoes => Set<Transacao>();
     public DbSet<Receita> Receitas => Set<Receita>();
+    public DbSet<OrcamentoMensal> OrcamentosMensais => Set<OrcamentoMensal>();
 
     private Guid CurrentUsuarioId => _currentUserContext.UsuarioId ?? Guid.Empty;
 
@@ -64,6 +65,8 @@ public class AppDbContext : DbContext
             entity.HasKey(transacao => transacao.Id);
             entity.Property(transacao => transacao.Descricao).IsRequired();
             entity.Property(transacao => transacao.Categoria).HasMaxLength(100);
+            entity.Property(transacao => transacao.EhFixo).HasDefaultValue(false);
+            entity.Property(transacao => transacao.EhEssencial).HasDefaultValue(false);
             entity.Property(transacao => transacao.Observacao).HasMaxLength(500);
             entity.Property(transacao => transacao.Origem)
                 .HasConversion<string>()
@@ -90,6 +93,19 @@ public class AppDbContext : DbContext
                 .HasForeignKey(receita => receita.UsuarioId)
                 .OnDelete(DeleteBehavior.Cascade);
             entity.HasQueryFilter(receita => receita.UsuarioId == CurrentUsuarioId);
+        });
+
+        modelBuilder.Entity<OrcamentoMensal>(entity =>
+        {
+            entity.HasKey(orcamento => orcamento.Id);
+            entity.Property(orcamento => orcamento.LimiteGastos).HasColumnType("numeric");
+            entity.Property(orcamento => orcamento.AtualizadoEmUtc);
+            entity.HasIndex(orcamento => new { orcamento.UsuarioId, orcamento.Ano, orcamento.Mes }).IsUnique();
+            entity.HasOne(orcamento => orcamento.Usuario)
+                .WithMany(usuario => usuario.OrcamentosMensais)
+                .HasForeignKey(orcamento => orcamento.UsuarioId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasQueryFilter(orcamento => orcamento.UsuarioId == CurrentUsuarioId);
         });
     }
 

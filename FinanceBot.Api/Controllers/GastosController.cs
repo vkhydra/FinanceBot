@@ -30,7 +30,7 @@ public sealed class GastosController : ControllerBase
         CancellationToken cancellationToken = default)
     {
         var gasto = await financeOperationsService.RegistrarGastoAsync(
-            new CriarGastoRequest(request.Descricao, request.Valor, request.Observacao),
+            new CriarGastoRequest(request.Descricao, request.Valor, request.Observacao, request.EhFixo, request.EhEssencial),
             cancellationToken);
 
         return StatusCode(StatusCodes.Status201Created, gasto);
@@ -47,7 +47,14 @@ public sealed class GastosController : ControllerBase
     {
         var gasto = await financeOperationsService.AtualizarGastoAsync(
             gastoId,
-            new AtualizarGastoRequest(request.Descricao, request.Valor, request.Data, request.Categoria, request.Observacao),
+            new AtualizarGastoRequest(
+                request.Descricao,
+                request.Valor,
+                request.Data,
+                request.Categoria,
+                request.Observacao,
+                request.EhFixo,
+                request.EhEssencial),
             cancellationToken);
 
         return gasto is null

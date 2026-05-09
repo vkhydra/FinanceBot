@@ -12,4 +12,5 @@ public sealed class Usuario
     public AssinaturaUsuario Assinatura { get; set; } = null!;
     public ICollection<Transacao> Transacoes { get; set; } = new List<Transacao>();
     public ICollection<Receita> Receitas { get; set; } = new List<Receita>();
+    public ICollection<OrcamentoMensal> OrcamentosMensais { get; set; } = new List<OrcamentoMensal>();
 }

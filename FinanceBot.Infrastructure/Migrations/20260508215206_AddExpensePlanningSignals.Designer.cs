@@ -3,6 +3,7 @@ using System;
 using FinanceBot.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace FinanceBot.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260508215206_AddExpensePlanningSignals")]
+    partial class AddExpensePlanningSignals
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -67,35 +70,6 @@ namespace FinanceBot.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("AssinaturasUsuario");
-                });
-
-            modelBuilder.Entity("FinanceBot.Domain.Entities.OrcamentoMensal", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("Ano")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTime>("AtualizadoEmUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<decimal>("LimiteGastos")
-                        .HasColumnType("numeric");
-
-                    b.Property<int>("Mes")
-                        .HasColumnType("integer");
-
-                    b.Property<Guid>("UsuarioId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UsuarioId", "Ano", "Mes")
-                        .IsUnique();
-
-                    b.ToTable("OrcamentosMensais");
                 });
 
             modelBuilder.Entity("FinanceBot.Domain.Entities.Receita", b =>
@@ -235,17 +209,6 @@ namespace FinanceBot.Infrastructure.Migrations
                     b.Navigation("Usuario");
                 });
 
-            modelBuilder.Entity("FinanceBot.Domain.Entities.OrcamentoMensal", b =>
-                {
-                    b.HasOne("FinanceBot.Domain.Entities.Usuario", "Usuario")
-                        .WithMany("OrcamentosMensais")
-                        .HasForeignKey("UsuarioId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Usuario");
-                });
-
             modelBuilder.Entity("FinanceBot.Domain.Entities.Receita", b =>
                 {
                     b.HasOne("FinanceBot.Domain.Entities.Usuario", "Usuario")
@@ -272,8 +235,6 @@ namespace FinanceBot.Infrastructure.Migrations
                 {
                     b.Navigation("Assinatura")
                         .IsRequired();
-
-                    b.Navigation("OrcamentosMensais");
 
                     b.Navigation("Receitas");
 

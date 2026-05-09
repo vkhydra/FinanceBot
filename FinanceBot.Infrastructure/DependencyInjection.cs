@@ -30,6 +30,7 @@ public static class DependencyInjection
         services.AddScoped<IUsuarioRepository, UsuarioRepository>();
         services.AddScoped<ITransacaoRepository, TransacaoRepository>();
         services.AddScoped<IReceitaRepository, ReceitaRepository>();
+        services.AddScoped<IOrcamentoMensalRepository, OrcamentoMensalRepository>();
         services.AddScoped<IFinanceUnitOfWork, EfFinanceUnitOfWork>();
         services.AddScoped<IPasswordHasher, BcryptPasswordHasher>();
         services.AddScoped<IAccessTokenService, JwtAccessTokenService>();

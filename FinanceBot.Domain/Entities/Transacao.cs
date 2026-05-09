@@ -10,6 +10,8 @@ public class Transacao
     public decimal Valor { get; set; }
     public DateTime Data { get; set; }
     public string? Categoria { get; set; }
+    public bool EhFixo { get; set; }
+    public bool EhEssencial { get; set; }
     public string? Observacao { get; set; }
     public OrigemLancamento Origem { get; set; } = OrigemLancamento.Web;
 

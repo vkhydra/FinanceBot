@@ -13,4 +13,8 @@ public sealed class CriarGastoHttpRequest
 
     [MaxLength(500)]
     public string? Observacao { get; init; }
+
+    public bool? EhFixo { get; init; }
+
+    public bool? EhEssencial { get; init; }
 }
