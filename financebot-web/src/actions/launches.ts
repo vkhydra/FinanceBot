@@ -37,6 +37,8 @@ export async function updateGastoAction(formData: FormData) {
   const data = String(formData.get("data") ?? "");
   const categoria = String(formData.get("categoria") ?? "").trim();
   const observacao = String(formData.get("observacao") ?? "").trim();
+  const ehFixo = formData.get("ehFixo") === "on";
+  const ehEssencial = formData.get("ehEssencial") === "on";
 
   if (!gastoId || !descricao || !categoria || Number.isNaN(valor) || valor <= 0 || !data) {
     redirect(
@@ -53,6 +55,8 @@ export async function updateGastoAction(formData: FormData) {
       data,
       categoria,
       observacao: observacao || undefined,
+      ehFixo,
+      ehEssencial,
     });
   } catch (error) {
     const message =

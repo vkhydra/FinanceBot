@@ -7,11 +7,15 @@ import { buildRedirect } from "@/lib/action-state";
 import { FinanceBotApiError, requestUpgrade } from "@/lib/financebot-api";
 import { requireSession } from "@/lib/session";
 
-const allowedRedirectTargets = new Set(["/dashboard", "/plano", "/telegram"]);
+const allowedRedirectPrefixes = ["/dashboard", "/plano", "/telegram"];
 
 function resolveRedirectTarget(formData: FormData) {
   const requestedTarget = String(formData.get("redirectTo") ?? "/dashboard");
-  return allowedRedirectTargets.has(requestedTarget) ? requestedTarget : "/dashboard";
+  return allowedRedirectPrefixes.some(
+    (prefix) => requestedTarget === prefix || requestedTarget.startsWith(`${prefix}?`),
+  )
+    ? requestedTarget
+    : "/dashboard";
 }
 
 export async function requestUpgradeAction(formData: FormData) {

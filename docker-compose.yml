@@ -66,6 +66,7 @@ services:
     environment:
       FINANCEBOT_API_BASE_URL: http://api:8080
       FINANCEBOT_SESSION_COOKIE_SECURE: "false"
+      FINANCEBOT_TELEGRAM_BOT_URL: https://t.me/vkhydra_finance_bot
     depends_on:
       api:
         condition: service_healthy

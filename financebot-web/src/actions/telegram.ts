@@ -11,8 +11,16 @@ import {
 import { buildRedirect } from "@/lib/action-state";
 import { requireSession } from "@/lib/session";
 
-export async function generateTelegramLinkAction() {
+function resolveTelegramRedirectTarget(formData: FormData) {
+  const requestedTarget = String(formData.get("redirectTo") ?? "/telegram");
+  return requestedTarget === "/telegram" || requestedTarget.startsWith("/telegram?")
+    ? requestedTarget
+    : "/telegram";
+}
+
+export async function generateTelegramLinkAction(formData: FormData) {
   const session = await requireSession();
+  const redirectTo = resolveTelegramRedirectTarget(formData);
 
   let link;
   try {
@@ -22,11 +30,11 @@ export async function generateTelegramLinkAction() {
       error instanceof FinanceBotApiError
         ? error.message
         : "Nao foi possivel gerar um codigo de vinculacao.";
-    redirect(buildRedirect("/telegram", { error: message }));
+    redirect(buildRedirect(redirectTo, { error: message }));
   }
 
   redirect(
-    buildRedirect("/telegram", {
+    buildRedirect(redirectTo, {
       success: "Codigo de vinculacao gerado.",
       code: link.codigo,
       expires: link.expiraEmUtc,
@@ -34,8 +42,9 @@ export async function generateTelegramLinkAction() {
   );
 }
 
-export async function unlinkTelegramAction() {
+export async function unlinkTelegramAction(formData: FormData) {
   const session = await requireSession();
+  const redirectTo = resolveTelegramRedirectTarget(formData);
 
   let result;
   try {
@@ -45,12 +54,12 @@ export async function unlinkTelegramAction() {
       error instanceof FinanceBotApiError
         ? error.message
         : "Nao foi possivel remover o vinculo com o Telegram.";
-    redirect(buildRedirect("/telegram", { error: message }));
+    redirect(buildRedirect(redirectTo, { error: message }));
   }
 
   revalidatePath("/telegram");
   redirect(
-    buildRedirect("/telegram", {
+    buildRedirect(redirectTo, {
       success: result.mensagem,
     }),
   );

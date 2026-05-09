@@ -166,4 +166,8 @@
   .app-pill {
     @apply inline-flex items-center gap-2 rounded-full border border-border/70 bg-background px-3 py-1 text-xs font-medium text-muted-foreground;
   }
+
+  .app-telegram-button {
+    @apply !border-[#229ED9] !bg-[#229ED9] !text-white shadow-[0_10px_24px_-18px_rgba(34,158,217,0.9)] hover:!border-[#1f90c6] hover:!bg-[#1f90c6] hover:!text-white focus-visible:!border-[#229ED9]/50 focus-visible:!ring-[#229ED9]/25 dark:!border-[#229ED9] dark:!bg-[#229ED9] dark:!text-white;
+  }
 }

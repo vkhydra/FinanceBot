@@ -36,6 +36,31 @@ export type ResumoResponse = {
   saldo: number;
 };
 
+export type MonthlyBudgetResponse = {
+  ano: number;
+  mes: number;
+  limiteGastos: number | null;
+  totalGastos: number;
+  totalReceitas: number;
+  gastoFixo: number;
+  gastoEssencial: number;
+  gastoNaoEssencial: number;
+  restante: number | null;
+  percentualConsumido: number | null;
+  projecaoFechamento: number;
+  diferencaProjetada: number | null;
+  diasNoMes: number;
+  diasDecorridos: number;
+  diasRestantes: number;
+  possuiOrcamentoDefinido: boolean;
+  estourado: boolean;
+  estouroProjetado: boolean;
+  sugestaoLimiteSeguro: number | null;
+  sugestaoLimiteEquilibrado: number | null;
+  sugestaoLimiteFlexivel: number | null;
+  mesesBaseSugestao: number;
+};
+
 export type MovimentoResponse = {
   id: string;
   tipo: string;
@@ -44,6 +69,7 @@ export type MovimentoResponse = {
   data: string;
   categoria?: string | null;
   ehFixo?: boolean | null;
+  ehEssencial?: boolean | null;
   origem: string;
   observacao?: string | null;
 };
@@ -54,6 +80,8 @@ export type GastoResponse = {
   valor: number;
   data: string;
   categoria: string;
+  ehFixo: boolean;
+  ehEssencial: boolean;
   origem: string;
   observacao?: string | null;
 };
@@ -196,6 +224,25 @@ export async function getResumo(token: string) {
   return apiRequest<ResumoResponse>("/api/resumo", {}, token);
 }
 
+export async function getMonthlyBudget(
+  token: string,
+  filters: { ano?: number; mes?: number } = {},
+) {
+  const params = new URLSearchParams();
+
+  if (typeof filters.ano === "number") {
+    params.set("ano", String(filters.ano));
+  }
+
+  if (typeof filters.mes === "number") {
+    params.set("mes", String(filters.mes));
+  }
+
+  const query = params.toString();
+  const path = query.length > 0 ? `/api/orcamentos/mensal?${query}` : "/api/orcamentos/mensal";
+  return apiRequest<MonthlyBudgetResponse>(path, {}, token);
+}
+
 export async function getUltimosMovimentos(token: string) {
   return apiRequest<MovimentoResponse[]>("/api/movimentos/ultimos", {}, token);
 }
@@ -249,7 +296,13 @@ export async function listMovimentos(
 
 export async function createGasto(
   token: string,
-  payload: { descricao: string; valor: number; observacao?: string },
+  payload: {
+    descricao: string;
+    valor: number;
+    observacao?: string;
+    ehFixo?: boolean;
+    ehEssencial?: boolean;
+  },
 ) {
   return apiRequest<GastoResponse>(
     "/api/gastos",
@@ -275,10 +328,32 @@ export async function createReceita(
   );
 }
 
+export async function updateMonthlyBudget(
+  token: string,
+  payload: { ano?: number; mes?: number; limiteGastos: number },
+) {
+  return apiRequest<MonthlyBudgetResponse>(
+    "/api/orcamentos/mensal",
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+}
+
 export async function updateGasto(
   token: string,
   gastoId: string,
-  payload: { descricao: string; valor: number; data: string; categoria: string; observacao?: string },
+  payload: {
+    descricao: string;
+    valor: number;
+    data: string;
+    categoria: string;
+    observacao?: string;
+    ehFixo?: boolean;
+    ehEssencial?: boolean;
+  },
 ) {
   return apiRequest<GastoResponse>(
     `/api/gastos/${gastoId}`,

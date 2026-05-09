@@ -34,3 +34,26 @@ export function formatDate(value: string | Date) {
 export function formatPercentage(value: number) {
   return percentageFormatter.format(value);
 }
+
+export function getMovementTraits(movimento: {
+  tipo: string;
+  categoria?: string | null;
+  ehFixo?: boolean | null;
+  ehEssencial?: boolean | null;
+}) {
+  const traits: string[] = [];
+
+  if (movimento.categoria) {
+    traits.push(movimento.categoria);
+  }
+
+  if (movimento.ehFixo) {
+    traits.push(movimento.tipo === "Receita" ? "Fixa" : "Fixo");
+  }
+
+  if (movimento.ehEssencial) {
+    traits.push("Essencial");
+  }
+
+  return traits;
+}

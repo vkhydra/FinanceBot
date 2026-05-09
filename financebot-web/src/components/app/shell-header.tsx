@@ -1,6 +1,11 @@
-import Link from "next/link";
+"use client";
 
-import { ChartSpline, Menu, MessageCircleMore, ShieldCheck, WalletCards } from "lucide-react";
+import Link from "next/link";
+import { type ComponentType, useState } from "react";
+import { usePathname } from "next/navigation";
+
+import { ChartSpline, Menu, ShieldCheck, WalletCards } from "lucide-react";
+import { FaTelegramPlane } from "react-icons/fa";
 
 import { logoutAction } from "@/actions/auth";
 import { Button } from "@/components/ui/button";
@@ -12,12 +17,21 @@ type ShellHeaderProps = {
   email: string;
 };
 
+type NavigationIcon = ComponentType<{ className?: string }>;
+
+type NavigationLink = {
+  href: string;
+  label: string;
+  icon: NavigationIcon;
+};
+
 export function ShellHeader({ email }: ShellHeaderProps) {
-  const links = [
+  const pathname = usePathname();
+  const links: NavigationLink[] = [
     { href: "/dashboard", label: "Dashboard", icon: ChartSpline },
     { href: "/lancamentos", label: "Lancamentos", icon: WalletCards },
     { href: "/plano", label: "Plano", icon: ShieldCheck },
-    { href: "/telegram", label: "Telegram", icon: MessageCircleMore },
+    { href: "/telegram", label: "Telegram", icon: FaTelegramPlane },
   ];
 
   return (
@@ -52,38 +66,67 @@ export function ShellHeader({ email }: ShellHeaderProps) {
               Sair
             </Button>
           </form>
-          <details className="relative lg:hidden">
-            <summary
-              className={`${buttonVariants({ variant: "outline", size: "icon" })} list-none border-border/70 bg-background/75 [&::-webkit-details-marker]:hidden`}
-            >
-              <Menu className="size-4" />
-            </summary>
-            <div className="absolute right-0 top-12 z-50 w-72 rounded-2xl border border-border/70 bg-popover p-3 shadow-xl">
-              <div className="rounded-2xl border border-border/60 bg-card/80 px-4 py-3">
-                <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Sessao ativa</p>
-                <p className="mt-1 truncate font-medium">{email}</p>
-              </div>
-              <nav className="mt-3 grid gap-2">
-                {links.map(({ href, label, icon: Icon }) => (
-                  <Link
-                    key={href}
-                    href={href}
-                    className="inline-flex items-center gap-3 rounded-2xl border border-transparent px-3 py-3 text-sm text-muted-foreground transition-colors hover:border-border/60 hover:bg-muted/60 hover:text-foreground"
-                  >
-                    <Icon className="size-4" />
-                    {label}
-                  </Link>
-                ))}
-              </nav>
-              <form action={logoutAction} className="mt-3">
-                <Button type="submit" variant="outline" className="w-full border-border/70 bg-background/75">
-                  Sair
-                </Button>
-              </form>
-            </div>
-          </details>
+          <MobileMenu key={pathname} email={email} links={links} />
         </div>
       </div>
     </header>
+  );
+}
+
+function MobileMenu({
+  email,
+  links,
+}: {
+  email: string;
+  links: NavigationLink[];
+}) {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  return (
+    <div className="relative lg:hidden">
+      <button
+        type="button"
+        aria-label="Abrir menu"
+        aria-expanded={mobileMenuOpen}
+        onClick={() => setMobileMenuOpen((current) => !current)}
+        className={`${buttonVariants({ variant: "outline", size: "icon" })} border-border/70 bg-background/75`}
+      >
+        <Menu className="size-4" />
+      </button>
+      {mobileMenuOpen ? (
+        <>
+          <button
+            type="button"
+            aria-label="Fechar menu"
+            className="fixed inset-0 z-40 bg-background/20 backdrop-blur-[1px]"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          <div className="absolute right-0 top-12 z-50 w-72 rounded-2xl border border-border/70 bg-popover p-3 shadow-xl">
+            <div className="rounded-2xl border border-border/60 bg-card/80 px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">Sessao ativa</p>
+              <p className="mt-1 truncate font-medium">{email}</p>
+            </div>
+            <nav className="mt-3 grid gap-2">
+              {links.map(({ href, label, icon: Icon }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="inline-flex items-center gap-3 rounded-2xl border border-transparent px-3 py-3 text-sm text-muted-foreground transition-colors hover:border-border/60 hover:bg-muted/60 hover:text-foreground"
+                >
+                  <Icon className="size-4" />
+                  {label}
+                </Link>
+              ))}
+            </nav>
+            <form action={logoutAction} className="mt-3" onSubmit={() => setMobileMenuOpen(false)}>
+              <Button type="submit" variant="outline" className="w-full border-border/70 bg-background/75">
+                Sair
+              </Button>
+            </form>
+          </div>
+        </>
+      ) : null}
+    </div>
   );
 }

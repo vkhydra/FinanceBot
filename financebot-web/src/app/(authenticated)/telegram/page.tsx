@@ -1,5 +1,8 @@
 import Link from "next/link";
 
+import { ExternalLink } from "lucide-react";
+import { FaTelegramPlane } from "react-icons/fa";
+
 import { requestUpgradeAction } from "@/actions/billing";
 import { generateTelegramLinkAction, unlinkTelegramAction } from "@/actions/telegram";
 import { FlashMessage } from "@/components/app/flash-message";
@@ -19,6 +22,9 @@ type TelegramPageProps = {
 export default async function TelegramPage({
   searchParams,
 }: TelegramPageProps) {
+  const telegramBotUrl = process.env.FINANCEBOT_TELEGRAM_BOT_URL ?? "https://t.me/vkhydra_finance_bot";
+  const telegramBotHandle = "@vkhydra_finance_bot";
+  const telegramBotAppUrl = "tg://resolve?domain=vkhydra_finance_bot";
   const session = await requireSession();
   const params = await searchParams;
   const error = getQueryMessage(params.error);
@@ -40,21 +46,40 @@ export default async function TelegramPage({
         <CardHeader>
           <CardTitle>Vincular Telegram</CardTitle>
           <CardDescription>
-            Gere um codigo de 6 digitos para conectar sua conta Web ao bot do Telegram ou
+            Gere um codigo de 6 digitos para conectar sua conta Web ao bot {telegramBotHandle} ou
             regenere um novo codigo quando precisar.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <form action={generateTelegramLinkAction}>
-              <Button type="submit">Gerar codigo de vinculacao</Button>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <form action={generateTelegramLinkAction} className="w-full">
+              <input type="hidden" name="redirectTo" value="/telegram" />
+              <Button type="submit" className="h-11 w-full rounded-2xl">
+                Gerar codigo de vinculacao
+              </Button>
             </form>
-            <form action={unlinkTelegramAction}>
-              <Button type="submit" variant="outline">
+            <a
+              href={telegramBotAppUrl}
+              className={`${buttonVariants({ variant: "outline" })} app-telegram-button h-11 w-full justify-center rounded-2xl`}
+            >
+              <FaTelegramPlane className="size-4" />
+              Abrir direto no app
+            </a>
+            <form action={unlinkTelegramAction} className="w-full sm:col-span-2">
+              <input type="hidden" name="redirectTo" value="/telegram" />
+              <Button type="submit" variant="outline" className="h-11 w-full rounded-2xl">
                 Desvincular via Web
               </Button>
             </form>
           </div>
+
+          <p className="text-sm text-muted-foreground">
+            Se preferir abrir no navegador primeiro, use{" "}
+            <Link href={telegramBotUrl} target="_blank" rel="noreferrer" className="font-medium text-[#229ED9] hover:underline">
+              {telegramBotHandle}
+            </Link>
+            .
+          </p>
 
           {code ? (
             <>
@@ -73,7 +98,17 @@ export default async function TelegramPage({
             </>
           ) : null}
 
-          <div className="space-y-2 text-sm text-muted-foreground">
+          <div className="space-y-3 text-sm text-muted-foreground">
+            <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+              <p className="font-medium text-foreground">Abra o bot correto</p>
+              <p className="mt-1">
+                Use <strong className="text-foreground">{telegramBotHandle}</strong> ou toque no botao acima para ir direto ao chat.
+              </p>
+              <p className="mt-2">
+                Se o navegador mostrar <strong className="text-foreground">&quot;endereco invalido&quot;</strong>, abra o app do Telegram e busque por{" "}
+                <strong className="text-foreground">{telegramBotHandle}</strong> manualmente.
+              </p>
+            </div>
             <p>Passos:</p>
             <ol className="list-decimal space-y-1 pl-5">
               <li>Abra o bot do FinanceBot no Telegram.</li>
@@ -84,9 +119,17 @@ export default async function TelegramPage({
 
           <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
             Se preferir, voce tambem pode remover o chat depois com{" "}
-            <strong className="text-foreground">/desvincular</strong> no Telegram. A acao na Web
-            usa o mesmo endpoint autenticado <strong className="text-foreground">POST /auth/desvincular</strong>{" "}
-            e responde sem erro mesmo quando nao existe vinculo ativo.
+            <strong className="text-foreground">/desvincular</strong> no Telegram.
+            <Link
+              href={telegramBotUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={`${buttonVariants({ variant: "outline" })} app-telegram-button mt-3 inline-flex h-11 items-center gap-2 rounded-2xl text-sm font-medium`}
+            >
+              <FaTelegramPlane className="size-4" />
+              Abrir {telegramBotHandle}
+              <ExternalLink className="size-4" />
+            </Link>
           </div>
         </CardContent>
       </Card>

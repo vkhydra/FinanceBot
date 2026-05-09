@@ -1,8 +1,11 @@
 import Link from "next/link";
 
+import { FaTelegramPlane } from "react-icons/fa";
+
 import { requestUpgradeAction } from "@/actions/billing";
 import { FlashMessage } from "@/components/app/flash-message";
 import { MetricCard } from "@/components/app/metric-card";
+import { PageSectionNav } from "@/components/app/page-section-nav";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +17,13 @@ import { formatDateTime } from "@/lib/utils/format";
 type BillingPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
+
+const billingSections = [
+  { id: "status", label: "Status do plano", description: "Estado atual, quota e jornada comercial." },
+  { id: "premium", label: "Premium e bot", description: "Valor entregue hoje e uso no Telegram." },
+] as const;
+
+type BillingSection = (typeof billingSections)[number]["id"];
 
 function getJourneyCopy(billing: Awaited<ReturnType<typeof getBillingStatus>>) {
   if (billing.upgradePendente) {
@@ -82,6 +92,7 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
   const params = await searchParams;
   const error = getQueryMessage(params.error);
   const success = getQueryMessage(params.success);
+  const activeSection = resolveBillingSection(getSingleValue(params.secao));
   const billing = await getBillingStatus(session.token);
   const journey = getJourneyCopy(billing);
 
@@ -98,7 +109,17 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
       ) : null}
       {success ? <FlashMessage title="Tudo certo" message={success} /> : null}
 
-      <section className="grid gap-6 lg:grid-cols-[1.6fr_1fr]">
+      <PageSectionNav
+        items={billingSections.map((section) => ({
+          href: buildBillingPath(section.id),
+          label: section.label,
+          description: section.description,
+          active: section.id === activeSection,
+        }))}
+      />
+
+      {activeSection === "status" ? (
+        <section className="grid gap-6 lg:grid-cols-[1.6fr_1fr]">
         <Card className="border-primary/20 bg-primary/5">
           <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="space-y-1">
@@ -123,17 +144,18 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
               </ol>
             </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row">
-              {billing.podeSolicitarUpgrade ? (
-                <form action={requestUpgradeAction}>
-                  <input type="hidden" name="redirectTo" value="/plano" />
-                  <Button type="submit">Solicitar upgrade para Premium</Button>
-                </form>
-              ) : null}
+              <div className="flex flex-col gap-3 sm:flex-row">
+                {billing.podeSolicitarUpgrade ? (
+                  <form action={requestUpgradeAction}>
+                    <input type="hidden" name="redirectTo" value={buildBillingPath("status")} />
+                    <Button type="submit">Solicitar upgrade para Premium</Button>
+                  </form>
+                ) : null}
               <Link href="/dashboard" className={buttonVariants({ variant: "outline" })}>
                 Abrir dashboard
               </Link>
-              <Link href="/telegram" className={buttonVariants({ variant: "outline" })}>
+              <Link href="/telegram" className={`${buttonVariants({ variant: "outline" })} app-telegram-button`}>
+                <FaTelegramPlane className="size-4" />
                 Abrir Telegram
               </Link>
             </div>
@@ -191,9 +213,11 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
             ) : null}
           </CardContent>
         </Card>
-      </section>
+        </section>
+      ) : null}
 
-      <section className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
+      {activeSection === "premium" ? (
+        <section className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
         <Card>
           <CardHeader>
             <CardTitle>O que o Premium entrega hoje</CardTitle>
@@ -252,7 +276,28 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
             </div>
           </CardContent>
         </Card>
-      </section>
+        </section>
+      ) : null}
     </div>
   );
+}
+
+function getSingleValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] ?? "" : value ?? "";
+}
+
+function resolveBillingSection(value: string): BillingSection {
+  return billingSections.some((section) => section.id === value)
+    ? (value as BillingSection)
+    : "status";
+}
+
+function buildBillingPath(section: BillingSection) {
+  if (section === "status") {
+    return "/plano";
+  }
+
+  const params = new URLSearchParams();
+  params.set("secao", section);
+  return `/plano?${params.toString()}`;
 }
